@@ -5,10 +5,12 @@ files; edit them in the app or in any editor and both stay in sync.
 
 - **Rust workspace**: `todo-core` (config, palettes, markdown model, storage —
   no UI deps, fully unit-tested) and `todo-app` (the Tauri 2 shell).
-- **Zero-framework frontend**: three static files in `ui/`, no bundler, no
-  `node_modules` at build time. The list view is ~700 lines of vanilla JS;
-  the markdown view lazy-loads a prebuilt CodeMirror 6 + vim bundle
-  (`ui/vendor/editor.js`, rebuilt from `tools/editor` with `npm run build`).
+- **TypeScript frontend, no framework**: the UI lives in `web/src/app` as
+  small modules (`model.ts` is pure and unit-tested; `list`, `drag`, `edit`,
+  `clipboard`, `tabs`, `editor`, `settings`, `keyboard` do the DOM work) and
+  is compiled by esbuild into the committed `ui/app.js`. The markdown view
+  lazy-loads a prebuilt CodeMirror 6 + vim bundle (`ui/vendor/editor.js`).
+  The Rust build needs no Node; you only need it to change the UI.
 - **Markdown is the database**:
 
   ```markdown
@@ -81,6 +83,7 @@ comments preserved.
 
 | `editor.vim` | `true` | vim keybindings in the markdown view |
 | `tabs.overflow` | `"scroll"` | `"scroll"` (one row) or `"wrap"` (multiple rows) when tabs don't fit |
+| `tabs.badge` | `"none"` | progress next to tab titles: `"ratio"` (3/5), `"percent"` (60%), `"remaining"` ((2)); the bottom-bar button cycles these |
 
 **Dark schemes**: `black`, `forest_mist`, `midnight_blue`, `nord`, `dracula`,
 `gruvbox_dark`, `solarized_dark`, `catppuccin_mocha`, `molokai_dark`.
@@ -123,10 +126,29 @@ make test
 
 Installers land in `target/release/bundle/`.
 
-To iterate on the UI without Tauri, serve the repo root
-(`python3 -m http.server 8765`) and open
-`http://localhost:8765/tools/harness/harness.html` — it runs `ui/` against a
-mocked backend; add `?autotest` to run the scripted interaction checks.
+### Frontend development and tests
+
+```sh
+make ui        # npm install + compile web/src → ui/app.js, ui/vendor/editor.js, tools/harness/harness.js
+make ui-check  # tsc --noEmit
+make ui-test   # node --test: unit tests for the pure model (web/src/app/*.test.ts)
+make harness   # browser scenarios in headless Chrome (web/src/harness/scenarios.ts)
+make test      # Rust + TypeScript unit tests
+make check     # clippy, rustfmt, tsc
+```
+
+The harness (`tools/harness/harness.html`) runs the real `ui/` against an
+in-memory mock of the Tauri backend (`web/src/harness/mock.ts`). Serve the
+repo root (`python3 -m http.server 8765`) and open it to click around; add
+`?autotest` to run every scenario from a fresh fixture, or `?md`, `?tab=Work`,
+`?scheme=molokai_dark`, `?wrap`, `?colors`, `?badge=ratio`, `?demo=inside` to
+set up a state for a screenshot.
+
+Rust tests live next to the code (`cargo test --workspace`): the markdown
+model, config parsing and clamping, the store (scan, atomic writes, rename,
+`tabs.toml` order/colors, corrupt-file fallbacks), the watcher's decision
+logic (`SyncPoller`), and the settings-patch → TOML key mapping in the app
+crate.
 
 ### Platform notes
 

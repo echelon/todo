@@ -355,6 +355,69 @@ mod tests {
     }
 
     #[test]
+    fn heading_levels_and_edge_forms() {
+        let doc = Document::parse("###### six\n#\ttab\n##   spaced   \n#");
+        assert_eq!(
+            doc.blocks[0],
+            Block::Heading {
+                level: 6,
+                text: "six".into()
+            }
+        );
+        assert_eq!(
+            doc.blocks[1],
+            Block::Heading {
+                level: 1,
+                text: "tab".into()
+            }
+        );
+        assert_eq!(
+            doc.blocks[2],
+            Block::Heading {
+                level: 2,
+                text: "spaced".into()
+            }
+        );
+        assert_eq!(doc.blocks[3], Block::Text { text: "#".into() });
+        // Levels beyond 6 are clamped when serialising a hand-built block.
+        let d = Document::from_blocks(vec![Block::Heading {
+            level: 9,
+            text: "x".into(),
+        }]);
+        assert_eq!(d.to_markdown(), "###### x\n");
+    }
+
+    #[test]
+    fn task_text_whitespace_is_trimmed_but_indent_kept() {
+        let doc = Document::parse("  - [ ]   padded   \n- [x]\t tabbed\n");
+        assert_eq!(
+            doc.blocks[0],
+            Block::Task {
+                done: false,
+                text: "padded".into(),
+                indent: "  ".into()
+            }
+        );
+        assert_eq!(
+            doc.blocks[1],
+            Block::Task {
+                done: true,
+                text: "tabbed".into(),
+                indent: "".into()
+            }
+        );
+    }
+
+    #[test]
+    fn crlf_and_missing_final_newline_normalise() {
+        let doc = Document::parse("- [ ] a\r\n\r\n- [x] b");
+        assert_eq!(doc.blocks.len(), 3);
+        assert_eq!(doc.to_markdown(), "- [ ] a\n\n- [x] b\n");
+        assert_eq!(Document::parse("\n").to_markdown(), "\n");
+        assert_eq!(Document::parse("\n\n").to_markdown(), "\n\n");
+    }
+
+    #[test]
     fn indent_preserved() {
         let doc = Document::parse("  - [ ] nested\n\t- [x] tab");
         assert_eq!(

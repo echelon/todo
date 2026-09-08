@@ -331,6 +331,47 @@ impl Store {
     }
 }
 
+/// The decision half of the file watcher, kept free of threads and OS
+/// notifications so it can be unit tested: given the current config-file
+/// mtime and a store, say whether the config must be reloaded and whether the
+/// UI needs a fresh [`Snapshot`].
+#[derive(Debug, Default)]
+pub struct SyncPoller {
+    config_mtime: Option<std::time::SystemTime>,
+}
+
+#[derive(Debug, Default, PartialEq)]
+pub struct PollOutcome {
+    pub config_changed: bool,
+    pub snapshot: Option<Snapshot>,
+}
+
+impl SyncPoller {
+    pub fn new(config_mtime: Option<std::time::SystemTime>) -> Self {
+        Self { config_mtime }
+    }
+
+    /// Record that the config was (re)loaded at this mtime, so the next poll
+    /// does not report it again.
+    pub fn mark_config(&mut self, mtime: Option<std::time::SystemTime>) {
+        self.config_mtime = mtime;
+    }
+
+    pub fn poll(
+        &mut self,
+        store: &mut Store,
+        config_mtime: Option<std::time::SystemTime>,
+    ) -> PollOutcome {
+        let config_changed = config_mtime != self.config_mtime;
+        self.config_mtime = config_mtime;
+        let snapshot = store.scan().then(|| store.snapshot());
+        PollOutcome {
+            config_changed,
+            snapshot,
+        }
+    }
+}
+
 fn is_md(path: &Path) -> bool {
     path.is_file()
         && path
@@ -541,6 +582,71 @@ mod tests {
         assert_eq!(s.colors().len(), 1);
         assert_eq!(s.snapshot().files[0].color.as_deref(), Some("tomato"));
         std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn sanitize_name_edge_cases() {
+        assert_eq!(sanitize_name("  Work.md ").unwrap(), "Work");
+        assert_eq!(sanitize_name("a.b.md").unwrap(), "a.b");
+        assert_eq!(sanitize_name("with spaces").unwrap(), "with spaces");
+        for bad in ["", "   ", ".md", ".hidden", "..", "a/b", "a\\b", "nul\0"] {
+            assert!(sanitize_name(bad).is_err(), "{bad:?} should be rejected");
+        }
+    }
+
+    #[test]
+    fn atomic_write_reports_unwritable_parent() {
+        let (_s, dir) = tmp_store();
+        let file_as_dir = dir.join("Todo.md").join("nested.md");
+        assert!(atomic_write(&file_as_dir, "x").is_err());
+        assert!(!dir.join(".nested.md").exists(), "no temp file left behind");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn poller_reports_external_changes_and_config_mtime_once() {
+        use std::time::{Duration, SystemTime};
+        let (mut s, dir) = tmp_store();
+        s.scan();
+        let t0 = Some(SystemTime::UNIX_EPOCH + Duration::from_secs(1));
+        let mut p = SyncPoller::new(t0);
+        // Nothing happened: quiet.
+        assert_eq!(p.poll(&mut s, t0), PollOutcome::default());
+        // Our own write is not a change.
+        s.write_raw("Todo", "- [ ] mine\n").unwrap();
+        assert_eq!(p.poll(&mut s, t0), PollOutcome::default());
+        // External write: snapshot.
+        std::fs::write(dir.join("Todo.md"), "- [x] theirs\n").unwrap();
+        let out = p.poll(&mut s, t0);
+        assert!(!out.config_changed);
+        assert_eq!(out.snapshot.unwrap().files[0].raw, "- [x] theirs\n");
+        // Config mtime moved: reported exactly once.
+        let t1 = Some(SystemTime::UNIX_EPOCH + Duration::from_secs(2));
+        assert!(p.poll(&mut s, t1).config_changed);
+        assert!(!p.poll(&mut s, t1).config_changed);
+        // Config file vanished (None) is also a change; mark_config suppresses it.
+        p.mark_config(None);
+        assert!(!p.poll(&mut s, None).config_changed);
+        // tabs.toml edits count as changes too.
+        std::fs::write(dir.join(ORDER_FILE), "order = [\"Todo\"]\n").unwrap();
+        assert!(p.poll(&mut s, None).snapshot.is_some());
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn tabs_file_more_lenient_cases() {
+        let f = parse_tabs_file("order = [\"A\"]\ncolors = 5\n");
+        assert_eq!(f.order, vec!["A"]);
+        assert!(f.colors.is_empty());
+        let f = parse_tabs_file("[colors]\n\"Work.md\" = \"#fff\"\nEmpty = \"\"\n");
+        assert!(f.order.is_empty());
+        assert_eq!(f.colors.get("Work").map(String::as_str), Some("#fff"));
+        assert!(!f.colors.contains_key("Empty"));
+        let long = format!("[colors]\nA = \"{}\"\n", "x".repeat(100));
+        assert!(
+            parse_tabs_file(&long).colors.is_empty(),
+            "overlong colors are dropped"
+        );
     }
 
     #[test]

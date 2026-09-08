@@ -38,6 +38,9 @@ kbd { font-family: var(--mono); background: var(--surface); border: 1px solid va
 .tab.active { background: var(--surface); color: var(--fg); font-weight: 600; }
 .tab.dragging { opacity: .5; outline: 1.5px dashed var(--accent); outline-offset: -1px; }
 .tabs.wrap { flex-wrap: wrap; overflow: visible; }
+.tab .badge { margin-left: 6px; font-size: .82em; font-weight: 400; color: var(--muted); font-variant-numeric: tabular-nums; }
+.tab.active .badge { color: var(--accent); }
+.badge-btn { width: auto; padding: 0 6px; font-size: .78em; font-family: var(--mono); letter-spacing: .02em; }
 .tab[data-color] { padding-left: 20px; position: relative; }
 .tab[data-color]::before {
   content: ''; position: absolute; left: 8px; top: 50%; width: 7px; height: 7px; border-radius: 50%;

@@ -11,7 +11,10 @@ use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, LogicalSize, Manager, State, WebviewWindow, Wry};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
-use todo_core::{Appearance, Block, ColorScheme, Config, Palette, Snapshot, Store, TabOverflow};
+use todo_core::{
+    Appearance, Block, ColorScheme, Config, Palette, Snapshot, Store, SyncPoller, TabBadge,
+    TabOverflow,
+};
 
 const MAIN: &str = "main";
 const EV_SNAPSHOT: &str = "todo:snapshot";
@@ -70,6 +73,7 @@ pub struct SettingsPatch {
     visible_on_all_workspaces: Option<bool>,
     vim: Option<bool>,
     tab_overflow: Option<TabOverflow>,
+    tab_badge: Option<TabBadge>,
 }
 
 fn payload(cfg: &Config) -> ConfigPayload {
@@ -175,8 +179,8 @@ fn delete_file(state: State<AppState>, name: String) -> Result<Snapshot, String>
     Ok(store.snapshot())
 }
 
-#[tauri::command]
-fn update_settings(app: AppHandle, patch: SettingsPatch) -> Result<ConfigPayload, String> {
+/// The `(dotted key, value)` pairs a [`SettingsPatch`] writes to the config file.
+fn patch_values(patch: &SettingsPatch) -> Vec<(&'static str, toml_edit::Value)> {
     use toml_edit::Value;
     let mut values: Vec<(&str, Value)> = Vec::new();
     if let Some(v) = patch.appearance {
@@ -209,6 +213,15 @@ fn update_settings(app: AppHandle, patch: SettingsPatch) -> Result<ConfigPayload
     if let Some(v) = patch.tab_overflow {
         values.push(("tabs.overflow", Value::from(v.id())));
     }
+    if let Some(v) = patch.tab_badge {
+        values.push(("tabs.badge", Value::from(v.id())));
+    }
+    values
+}
+
+#[tauri::command]
+fn update_settings(app: AppHandle, patch: SettingsPatch) -> Result<ConfigPayload, String> {
+    let values = patch_values(&patch);
     let path = Config::path().map_err(err)?;
     Config::write_values(&path, &values).map_err(err)?;
     reload_config(&app).map_err(err)
@@ -416,19 +429,17 @@ fn spawn_watcher(app: AppHandle) {
                     }
                 }
 
-                // Config file changed on disk?
-                let known = *state.config_mtime.lock().unwrap();
-                let now = config_mtime();
-                if now != known {
+                // Config file changed on disk? Todo files or tabs.toml changed
+                // (own writes are filtered by content)? `SyncPoller` decides.
+                let outcome = {
+                    let mut store = state.store.lock().unwrap();
+                    let mut poller = SyncPoller::new(*state.config_mtime.lock().unwrap());
+                    poller.poll(&mut store, config_mtime())
+                };
+                if outcome.config_changed {
                     let _ = reload_config(&app);
                 }
-
-                // Todo files changed on disk (own writes are filtered by content)?
-                let snapshot = {
-                    let mut store = state.store.lock().unwrap();
-                    store.scan().then(|| store.snapshot())
-                };
-                if let Some(snap) = snapshot {
+                if let Some(snap) = outcome.snapshot {
                     let _ = app.emit(EV_SNAPSHOT, snap);
                 }
             }
@@ -588,4 +599,81 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running Todo");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn keys(p: &SettingsPatch) -> Vec<&'static str> {
+        patch_values(p).into_iter().map(|(k, _)| k).collect()
+    }
+
+    #[test]
+    fn empty_patch_writes_nothing() {
+        assert!(patch_values(&SettingsPatch::default()).is_empty());
+    }
+
+    #[test]
+    fn patch_maps_every_field_to_its_config_key() {
+        let p: SettingsPatch = serde_json::from_str(
+            r#"{"appearance":"dark","light_scheme":"sepia","dark_scheme":"molokai_dark","opacity":0.5,
+                "always_on_top":true,"font_size":16,"close_to_tray":false,"visible_on_all_workspaces":false,
+                "vim":false,"tab_overflow":"wrap","tab_badge":"remaining"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            keys(&p),
+            vec![
+                "appearance",
+                "light_scheme",
+                "dark_scheme",
+                "window.opacity",
+                "window.always_on_top",
+                "font_size",
+                "tray.close_to_tray",
+                "tray.visible_on_all_workspaces",
+                "editor.vim",
+                "tabs.overflow",
+                "tabs.badge",
+            ]
+        );
+        let vals = patch_values(&p);
+        assert_eq!(vals[0].1.as_str(), Some("dark"));
+        assert_eq!(vals[2].1.as_str(), Some("molokai_dark"));
+        assert_eq!(vals[9].1.as_str(), Some("wrap"));
+        assert_eq!(vals[10].1.as_str(), Some("remaining"));
+    }
+
+    #[test]
+    fn patch_clamps_numbers() {
+        let p: SettingsPatch = serde_json::from_str(r#"{"opacity":9,"font_size":1}"#).unwrap();
+        let vals = patch_values(&p);
+        assert_eq!(vals[0].1.as_float(), Some(1.0));
+        assert_eq!(vals[1].1.as_float(), Some(8.0));
+    }
+
+    #[test]
+    fn patch_rejects_unknown_enum_values() {
+        assert!(serde_json::from_str::<SettingsPatch>(r#"{"tab_badge":"pie"}"#).is_err());
+        assert!(serde_json::from_str::<SettingsPatch>(r#"{"appearance":"auto"}"#).is_err());
+    }
+
+    #[test]
+    fn patch_round_trips_through_the_config_file() {
+        let dir = std::env::temp_dir().join(format!("todo-app-patch-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("cfg.toml");
+        std::fs::write(&path, "# mine\nappearance = \"light\"\n").unwrap();
+        let p: SettingsPatch =
+            serde_json::from_str(r#"{"tab_badge":"percent","vim":false,"opacity":0.4}"#).unwrap();
+        Config::write_values(&path, &patch_values(&p)).unwrap();
+        let cfg = Config::load_from(&path).unwrap();
+        assert_eq!(cfg.tabs.badge, TabBadge::Percent);
+        assert!(!cfg.editor.vim);
+        assert_eq!(cfg.window.opacity, 0.4);
+        assert_eq!(cfg.appearance, Appearance::Light);
+        assert!(std::fs::read_to_string(&path).unwrap().contains("# mine"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
 }

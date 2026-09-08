@@ -56,3 +56,6 @@ vim = true
 [tabs]
 # When the tabs don't fit the window width: "scroll" (one row) or "wrap" (multiple rows).
 overflow = "scroll"
+# Progress next to each tab title: "none", "ratio" (3/5), "percent" (60%), "remaining" ((2)).
+# The button in the bottom bar cycles through these.
+badge = "none"

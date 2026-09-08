@@ -329,6 +329,79 @@ mod tests {
     }
 
     #[test]
+    fn expand_tilde_variants() {
+        let home = dirs::home_dir().unwrap();
+        assert_eq!(expand_tilde(Path::new("~")), home);
+        assert_eq!(expand_tilde(Path::new("~/todos")), home.join("todos"));
+        assert_eq!(
+            expand_tilde(Path::new("/abs/path")),
+            PathBuf::from("/abs/path")
+        );
+        assert_eq!(expand_tilde(Path::new("~user/x")), PathBuf::from("~user/x"));
+        assert_eq!(
+            Config::parse("todo_dir = \"~/lists\"")
+                .unwrap()
+                .todo_dir_expanded(),
+            home.join("lists")
+        );
+    }
+
+    #[test]
+    fn out_of_range_values_are_clamped() {
+        let cfg = Config::parse(
+            "font_size = 200\n[window]\nopacity = 7\ncorner_radius = -3\nwidth = 10\nheight = 10\n",
+        )
+        .unwrap();
+        assert_eq!(cfg.font_size, 40.0);
+        assert_eq!(cfg.window.opacity, 1.0);
+        assert_eq!(cfg.window.corner_radius, 0.0);
+        assert_eq!(cfg.window.width, 200.0);
+        assert_eq!(cfg.window.height, 150.0);
+        assert_eq!(
+            Config::parse("[window]\nopacity = 0\n")
+                .unwrap()
+                .window
+                .opacity,
+            0.05
+        );
+    }
+
+    #[test]
+    fn unknown_enum_values_are_errors_but_unknown_keys_are_ignored() {
+        assert!(Config::parse("appearance = \"sepia\"").is_err());
+        assert!(Config::parse("dark_scheme = \"nope\"").is_err());
+        let cfg = Config::parse("future_key = 1\n[window]\nother = true\n").unwrap();
+        assert_eq!(cfg, Config::default());
+    }
+
+    #[test]
+    fn scheme_fallbacks_when_unset() {
+        let cfg = Config::parse("dark_scheme = \"black\"").unwrap();
+        assert_eq!(cfg.dark_scheme(), ColorScheme::Black);
+        assert_eq!(cfg.light_scheme(), ColorScheme::White);
+        assert_eq!(Config::default().dark_scheme(), ColorScheme::MidnightBlue);
+    }
+
+    #[test]
+    fn write_values_creates_missing_file_from_template() {
+        let dir = std::env::temp_dir().join(format!("todo-core-wv-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("fresh.toml");
+        Config::write_values(&path, &[("tabs.badge", toml_edit::Value::from("percent"))]).unwrap();
+        let cfg = Config::load_from(&path).unwrap();
+        assert_eq!(cfg.tabs.badge, TabBadge::Percent);
+        assert_eq!(
+            cfg.todo_dir,
+            PathBuf::from("~/todos"),
+            "template values kept"
+        );
+        assert!(std::fs::read_to_string(&path)
+            .unwrap()
+            .starts_with("# ~/.todo_config.toml"));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
     fn write_values_preserves_comments() {
         let dir = std::env::temp_dir().join(format!("todo-core-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
