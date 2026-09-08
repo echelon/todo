@@ -18,6 +18,9 @@
       white:         ['#ffffff','#f4f4f5','#18181b','#71717a','#2563eb','#ffffff','#e4e4e7','#dc2626', false],
       forest_mist:   ['#0f1a14','#182419','#d9e5dc','#7f9a88','#6fcf97','#06120b','#243428','#f08080', true],
       rose_pine_dawn:['#faf4ed','#fffaf3','#575279','#9893a5','#d7827e','#faf4ed','#efe6dd','#b4637a', false],
+      molokai_dark:  ['#1b1d1e','#272a2b','#f8f8f2','#7e8e91','#f92672','#1b1d1e','#3a3d3e','#fd971f', true],
+      molokai_light: ['#fafafa','#f0efe9','#272822','#8b8b7f','#d81b60','#ffffff','#e4e3dc','#e65100', false],
+      forest_light:  ['#f3f7f2','#e6eee4','#24402c','#6f8a75','#2f8f5b','#ffffff','#d5e2d3','#c0392b', false],
     };
     const pal = (id) => { const c = schemes[id] || schemes.midnight_blue; return { scheme: id, is_dark: c[8], bg: c[0], surface: c[1], fg: c[2], muted: c[3], accent: c[4], accent_fg: c[5], border: c[6], danger: c[7] }; };
     const config = {
@@ -47,11 +50,13 @@
         : b.kind === 'task' ? b.indent + (b.done ? '- [x]' : '- [ ]') + (b.text ? ' ' + b.text : '')
         : b.kind === 'text' || b.kind === 'rule' ? b.text : '').map((l) => l + '\n').join('');
     }
-    const snapshot = () => ({ dir: '/mock/todos', files: Object.keys(files).sort((a, b) => a.localeCompare(b)).map((name) => ({ name, raw: files[name], blocks: parse(files[name]) })) });
+    let order = [];
+    const rank = (n) => { const i = order.indexOf(n); return i < 0 ? 1e9 : i; };
+    const snapshot = () => ({ dir: '/mock/todos', files: Object.keys(files).sort((a, b) => (rank(a) - rank(b)) || a.toLowerCase().localeCompare(b.toLowerCase())).map((name) => ({ name, raw: files[name], blocks: parse(files[name]) })) });
     const cfgPayload = () => ({ config, light: pal(config.light_scheme), dark: pal(config.dark_scheme), config_path: '/mock/.todo_config.toml', platform: 'mock',
       schemes: Object.keys(schemes).map((id) => ({ id, label: id, is_dark: schemes[id][8] })) });
     const listeners = {};
-    window.__mock = { files, config, emit: (n, p) => (listeners[n] || []).forEach((f) => f({ payload: p })), snapshot };
+    window.__mock = { files, config, get order() { return order; }, emit: (n, p) => (listeners[n] || []).forEach((f) => f({ payload: p })), snapshot };
     const commands = {
       get_config: () => cfgPayload(),
       get_snapshot: () => snapshot(),
@@ -59,6 +64,8 @@
       save_raw: ({ name, raw }) => { files[name] = raw; console.log('[save_raw]', name, JSON.stringify(raw)); return parse(raw); },
       create_file: ({ name }) => { name = name.replace(/\.md$/, ''); if (files[name]) throw 'file already exists: ' + name; files[name] = `# ${name}\n\n`; return { name, snapshot: snapshot() }; },
       delete_file: ({ name }) => { delete files[name]; return snapshot(); },
+      set_tab_order: ({ names }) => { order = names.filter((n) => files[n]); console.log('[set_tab_order]', JSON.stringify(order)); return snapshot(); },
+      rename_file: ({ from, to }) => { to = to.replace(/\.md$/, ''); if (!files[from]) throw 'no such file: ' + from; if (files[to] && to !== from) throw 'file already exists: ' + to; files[to] = files[from]; delete files[from]; return { name: to, snapshot: snapshot() }; },
       update_settings: ({ patch }) => {
         for (const [k, v] of Object.entries(patch)) {
           if (k === 'opacity' || k === 'always_on_top') config.window[k] = v;
@@ -81,12 +88,18 @@
 <body>
   <div id="app-root"></div>
   <script>
+    // ?md opens the markdown view, ?tab=Work picks a tab, ?scheme=x picks the dark scheme.
+    const qs = new URLSearchParams(location.search);
+    if (qs.has('md')) localStorage.setItem('view', 'markdown'); else localStorage.setItem('view', 'rendered');
+    localStorage.setItem('active', qs.get('tab') || 'Todo');
+    if (qs.get('scheme')) config.dark_scheme = qs.get('scheme');
     // Pull the markup out of ui/index.html so the harness never drifts from it.
     fetch('../../ui/index.html').then((r) => r.text()).then((html) => {
       const doc = new DOMParser().parseFromString(html, 'text/html');
       document.getElementById('app-root').replaceWith(doc.getElementById('app'));
       const s = document.createElement('script'); s.src = '../../ui/app.js'; document.body.append(s);
       if (location.search.includes('autotest')) s.onload = () => setTimeout(autotest, 50);
+      if (location.search.includes('demo=inside')) s.onload = () => setTimeout(demoInside, 50);
     });
 
     // ---- scripted interaction test (open with ?autotest) --------------
@@ -100,16 +113,29 @@
     function ptr(type, target, x, y, extra = {}) {
       target.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, pointerId: 1, isPrimary: true, ...extra }));
     }
-    async function dragRow(fromIdx, toY) {
+    async function dragRow(fromIdx, toY, { dx = 0, dwell = 0 } = {}) {
       const rows = qa('#list .task');
       const row = rows[fromIdx]; const r = row.getBoundingClientRect();
       const x = r.left + r.width / 2, y = r.top + r.height / 2;
       ptr('pointerdown', row.querySelector('.text'), x, y);
       ptr('pointermove', window, x, y + 8); await sleep(10);
-      for (let i = 1; i <= 6; i++) { ptr('pointermove', window, x, y + (toY - y) * i / 6); await sleep(5); }
+      for (let i = 1; i <= 6; i++) { ptr('pointermove', window, x + dx * i / 6, y + (toY - y) * i / 6); await sleep(5); }
       check('ghost exists during drag', !!q('.ghost'));
-      ptr('pointerup', window, x, toY);
+      if (dwell) { await sleep(dwell); ptr('pointermove', window, x + dx, toY + 0.5); await sleep(10); }
+      ptr('pointerup', window, x + dx, toY);
       await sleep(20);
+    }
+    // ?demo=inside&tab=Work: freeze mid-drag with the "drop inside" affordance showing.
+    async function demoInside() {
+      const rows = qa('#list .task');
+      const row = rows[5], r = row.getBoundingClientRect();
+      const x = r.left + r.width / 2, y = r.top + r.height / 2;
+      ptr('pointerdown', row.querySelector('.text'), x, y);
+      const pr = rows[0].getBoundingClientRect();
+      const midY = pr.top + pr.height / 2;
+      for (let i = 1; i <= 6; i++) { ptr('pointermove', window, x, y + (midY - y) * i / 6); await sleep(5); }
+      await sleep(300);
+      ptr('pointermove', window, x, midY + 0.5);
     }
     async function autotest() {
       try {
@@ -205,18 +231,80 @@
         // Tab while editing nests under the item above
         qa('#list .task .text')[3].click(); await sleep(10);
         q('#list .edit').dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true })); await sleep(10);
-        check('tab indents (max one deeper than above)', F.Work.includes('  - [ ] Child B\n    - [ ] Ship the todo app\n'));
+        check('tab indents one level', F.Work.includes('  - [ ] Child B\n  - [ ] Ship the todo app\n'));
+        q('#list .edit').dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true })); await sleep(10);
+        check('tab again nests under Child B', F.Work.includes('  - [ ] Child B\n    - [ ] Ship the todo app\n'));
+        q('#list .edit').dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true })); await sleep(10);
+        check('cannot nest deeper than one below previous', F.Work.includes('    - [ ] Ship the todo app\n'));
         q('#list .edit').dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true }));
         q('#list .edit').dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true })); await sleep(10);
         check('shift-tab outdents to root', F.Work.includes('  - [ ] Child B\n- [ ] Ship the todo app\n'));
         q('#list .edit').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await sleep(10);
+        // slight rightward drag below "Child B" nests under it
+        let rows = qa('#list .task'); // Parent, Child A, Child B, Ship, Write, Below
+        await dragRow(4, rows[3].getBoundingClientRect().bottom + 2, { dx: 14 });
+        check('slight right drag nests', F.Work.includes('- [ ] Ship the todo app\n  - [x] Write the core crate\n\n---'));
+        // hovering the middle of "Parent" and waiting drops inside it (last child)
+        rows = qa('#list .task'); // Parent, Child A, Child B, Ship, Write(nested), Below
+        const pr = rows[0].getBoundingClientRect();
+        const midY = pr.top + pr.height / 2;
+        await dragRow(5, midY, { dwell: 300 });
+        check('drop-inside highlight cleared', !q('.drop-inside'));
+        check('hover-drop nests as last child', F.Work.includes('  - [ ] Child B\n  - [ ] Below the rule\n- [ ] Ship the todo app\n'));
+        // and moving it back out (drag to the very end, level 0)
+        rows = qa('#list .task'); // Parent, A, B, Below, Ship, Write
+        await dragRow(3, q('#list .add-row').getBoundingClientRect().top + 2, { dx: -40 });
+        check('drag out to root at end', F.Work.endsWith('---\n\n- [ ] Below the rule\n'));
         // drag a task below the rule: the rule stays a rule
-        await dragRow(4, qa('#list .task')[5].getBoundingClientRect().bottom + 2);
-        check('drag past rule', F.Work.endsWith('---\n\n- [ ] Below the rule\n- [ ] Write the core crate\n'));
+        rows = qa('#list .task'); // Parent, A, B, Ship, Write(nested), Below
+        await dragRow(4, q('#list .add-row').getBoundingClientRect().top + 2, { dx: -40 });
+        check('drag past rule', F.Work.endsWith('---\n\n- [ ] Below the rule\n- [x] Write the core crate\n'));
         q('#new-tab').click(); await sleep(10);
         const ti = q('.tab-input'); ti.value = 'Home';
         ti.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); await sleep(20);
         check('new list created + active', q('.tab.active')?.textContent === 'Home' && !!F.Home);
+
+        // reorder tabs by dragging "Work" (last) before "Home" (first)
+        {
+          const tabs = qa('.tab');
+          check('tabs alphabetical by default', tabs.map((t) => t.textContent).join() === 'Home,Todo,Work');
+          const work = tabs[2], wr = work.getBoundingClientRect(), hr = tabs[0].getBoundingClientRect();
+          const y = wr.top + wr.height / 2;
+          ptr('pointerdown', work, wr.left + wr.width / 2, y);
+          ptr('pointermove', window, wr.left + wr.width / 2 - 10, y); await sleep(5);
+          ptr('pointermove', window, hr.left + 2, y); await sleep(5);
+          check('tab follows pointer', qa('.tab')[0] === work && work.classList.contains('dragging'));
+          ptr('pointerup', window, hr.left + 2, y); await sleep(20);
+          check('tab order persisted', window.__mock.order.join() === 'Work,Home,Todo' && qa('.tab').map((t) => t.textContent).join() === 'Work,Home,Todo');
+          check('active tab unchanged by reorder', q('.tab.active').textContent === 'Home');
+        }
+
+        // rename via double-click on the active tab
+        q('.tab.active').dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); await sleep(10);
+        const ri = q('.tab-input');
+        check('rename input prefilled', !!ri && ri.value === 'Home');
+        ri.value = 'Personal';
+        ri.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); await sleep(20);
+        check('renamed file + tab', !!F.Personal && !F.Home && q('.tab.active')?.textContent === 'Personal');
+        q('.tab.active').dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); await sleep(10);
+        q('.tab-input').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await sleep(10);
+        check('rename escape restores tab', !q('.tab-input') && q('.tab.active')?.textContent === 'Personal');
+
+        // right-click menu on a tab: Rename / Delete
+        const tabEl = q('.tab.active'); const tr = tabEl.getBoundingClientRect();
+        tabEl.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: tr.left + 5, clientY: tr.bottom })); await sleep(10);
+        check('context menu opens', !q('#ctx').hidden && qa('#ctx button').length === 2);
+        q('#ctx [data-act="rename"]').click(); await sleep(10);
+        check('menu rename opens input', q('#ctx').hidden && q('.tab-input')?.value === 'Personal');
+        q('.tab-input').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await sleep(10);
+        q('.tab.active').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: tr.left + 5, clientY: tr.bottom })); await sleep(10);
+        q('#ctx [data-act="delete"]').click(); await sleep(10);
+        check('menu delete asks', !q('#modal').hidden && /Personal/.test(q('#modal-msg').textContent));
+        q('#modal-cancel').click(); await sleep(10);
+        check('delete cancelled keeps list', !!F.Personal && q('#modal').hidden);
+        q('.tab.active').dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: tr.left + 5, clientY: tr.bottom })); await sleep(10);
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await sleep(10);
+        check('escape closes menu', q('#ctx').hidden);
 
         // settings
         q('#settings-btn').click(); await sleep(10);

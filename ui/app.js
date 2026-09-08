@@ -13,7 +13,7 @@ const $ = (s) => document.querySelector(s);
 const el = {
   tabs: $('#tabs'), newTab: $('#new-tab'), list: $('#list'), md: $('#md'), mdHost: $('#md-host'), empty: $('#empty'), count: $('#count'),
   viewSeg: $('#view-seg'), pin: $('#pin-btn'), hide: $('#hide-btn'), settingsBtn: $('#settings-btn'), settings: $('#settings'),
-  modal: $('#modal'), modalMsg: $('#modal-msg'), modalOk: $('#modal-ok'), modalCancel: $('#modal-cancel'), toast: $('#toast'),
+  ctx: $('#ctx'), modal: $('#modal'), modalMsg: $('#modal-msg'), modalOk: $('#modal-ok'), modalCancel: $('#modal-cancel'), toast: $('#toast'),
   sAppearance: $('#s-appearance'), sLight: $('#s-light'), sDark: $('#s-dark'), sOpacity: $('#s-opacity'), sFont: $('#s-font'),
   sTop: $('#s-top'), sClose: $('#s-close'), sSpaces: $('#s-spaces'), sVim: $('#s-vim'), sHint: $('#s-hint'),
 };
@@ -117,7 +117,7 @@ function renderTabs() {
     b.className = 'tab' + (f.name === S.active ? ' active' : '');
     b.textContent = f.name;
     b.dataset.name = f.name;
-    b.title = f.name + '.md  (right-click to delete)';
+    b.title = f.name + '.md  (double-click to rename, right-click for menu)';
     el.tabs.append(b);
   }
   el.tabs.querySelector('.tab.active')?.scrollIntoView({ inline: 'nearest', block: 'nearest' });
@@ -134,18 +134,122 @@ function setActive(name) {
 }
 
 el.tabs.addEventListener('click', (e) => {
+  if (S.suppressClick) return;
   const t = e.target.closest('.tab');
   if (t) setActive(t.dataset.name);
 });
-el.tabs.addEventListener('contextmenu', async (e) => {
+
+/* ── tab reordering: drag a tab left/right; order persists in tabs.toml ── */
+let tabDrag = null;
+el.tabs.addEventListener('pointerdown', (e) => {
+  if (e.button !== 0) return;
+  const tab = e.target.closest('.tab');
+  if (!tab) return;
+  tabDrag = { tab, x: e.clientX, y: e.clientY, active: false };
+});
+window.addEventListener('pointermove', (e) => {
+  if (!tabDrag) return;
+  if (!tabDrag.active) {
+    if (Math.hypot(e.clientX - tabDrag.x, e.clientY - tabDrag.y) < 6) return;
+    tabDrag.active = true;
+    tabDrag.tab.classList.add('dragging');
+    document.body.classList.add('is-dragging');
+  }
+  const tr = el.tabs.getBoundingClientRect();
+  if (e.clientX < tr.left + 16) el.tabs.scrollLeft -= 8;
+  else if (e.clientX > tr.right - 16) el.tabs.scrollLeft += 8;
+  let target = null;
+  for (const t of el.tabs.querySelectorAll('.tab:not(.dragging)')) {
+    const b = t.getBoundingClientRect();
+    if (e.clientX < b.left + b.width / 2) { target = t; break; }
+  }
+  if (target) { if (tabDrag.tab.nextElementSibling !== target) el.tabs.insertBefore(tabDrag.tab, target); }
+  else if (el.tabs.lastElementChild !== tabDrag.tab) el.tabs.append(tabDrag.tab);
+});
+async function endTabDrag() {
+  if (!tabDrag) return;
+  const d = tabDrag; tabDrag = null;
+  if (!d.active) return;
+  d.tab.classList.remove('dragging');
+  document.body.classList.remove('is-dragging');
+  S.suppressClick = true;
+  setTimeout(() => (S.suppressClick = false), 0);
+  const names = [...el.tabs.querySelectorAll('.tab')].map((t) => t.dataset.name);
+  if (names.join('\n') === S.snap.files.map((f) => f.name).join('\n')) return;
+  try { applySnapshot(await invoke('set_tab_order', { names })); } catch (e) { toast(e); renderTabs(); }
+}
+window.addEventListener('pointerup', endTabDrag);
+window.addEventListener('pointercancel', endTabDrag);
+el.tabs.addEventListener('dblclick', (e) => {
+  const t = e.target.closest('.tab');
+  if (t) renameTabPrompt(t);
+});
+
+function renameTabPrompt(tab) {
+  if (el.tabs.querySelector('.tab-input')) return;
+  const oldName = tab.dataset.name;
+  const inp = document.createElement('input');
+  inp.className = 'tab-input';
+  inp.value = oldName;
+  inp.style.width = Math.max(90, tab.offsetWidth + 20) + 'px';
+  tab.replaceWith(inp);
+  inp.focus();
+  inp.select();
+  let done = false;
+  const finish = async (commit) => {
+    if (done) return; done = true;
+    const name = inp.value.trim();
+    inp.remove();
+    if (!commit || !name || name === oldName) { renderTabs(); return; }
+    try {
+      const res = await invoke('rename_file', { from: oldName, to: name });
+      if (S.active === oldName) { S.active = res.name; localStorage.setItem('active', res.name); }
+      applySnapshot(res.snapshot);
+      renderTabs();
+      refreshView();
+    } catch (err) { toast(err); renderTabs(); }
+  };
+  inp.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') finish(true);
+    else if (e.key === 'Escape') finish(false);
+    e.stopPropagation();
+  });
+  inp.addEventListener('blur', () => finish(true));
+}
+
+/* ── tab context menu: Rename / Delete ─────────────────── */
+function openCtx(tab, x, y) {
+  el.ctx.dataset.name = tab.dataset.name;
+  el.ctx.hidden = false;
+  const app = $('#app').getBoundingClientRect();
+  const w = el.ctx.offsetWidth, h = el.ctx.offsetHeight;
+  el.ctx.style.left = Math.max(4, Math.min(x - app.left, app.width - w - 4)) + 'px';
+  el.ctx.style.top = Math.max(4, Math.min(y - app.top, app.height - h - 4)) + 'px';
+}
+function closeCtx() { el.ctx.hidden = true; }
+
+el.tabs.addEventListener('contextmenu', (e) => {
   const t = e.target.closest('.tab');
   if (!t) return;
   e.preventDefault();
-  const name = t.dataset.name;
+  openCtx(t, e.clientX, e.clientY);
+});
+
+async function deleteListPrompt(name) {
   if (await confirmDialog(`Delete the list "${name}" and its file ${name}.md?`)) {
     try { applySnapshot(await invoke('delete_file', { name })); } catch (err) { toast(err); }
   }
+}
+
+el.ctx.addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  const name = el.ctx.dataset.name;
+  closeCtx();
+  const tab = el.tabs.querySelector(`.tab[data-name="${CSS.escape(name)}"]`);
+  if (b.dataset.act === 'rename' && tab) renameTabPrompt(tab);
+  else if (b.dataset.act === 'delete') deleteListPrompt(name);
 });
+document.addEventListener('mousedown', (e) => { if (!el.ctx.hidden && !e.target.closest('#ctx')) closeCtx(); });
 
 function newListPrompt() {
   if (el.tabs.querySelector('.tab-input')) return;
@@ -383,6 +487,11 @@ function startDrag() {
   for (let k = i; k < end; k++) { const r = rowAt(k); if (r) drag.group.push(r); }
   drag.rootLevel = levelOf(f.blocks[i]);
   drag.level = drag.rootLevel;
+  // Pointer x that corresponds to level 0; each LEVEL_PX to the right is one level deeper.
+  drag.originX = drag.x - drag.rootLevel * LEVEL_PX;
+  drag.inside = null;          // row we will drop *into* (as last child)
+  drag.insideCandidate = null; // row the pointer is hovering the middle of
+  drag.insideTimer = null;
   const r = drag.row.getBoundingClientRect();
   const rootMargin = parseFloat(getComputedStyle(drag.row).marginLeft) || 0;
   drag.offY = drag.y - r.top;
@@ -417,12 +526,52 @@ function prevLevelInDom(row) {
   return -1;
 }
 
+const INSIDE_DWELL_MS = 180;
+
+function setInside(row) {
+  if (drag.inside === row) return;
+  drag.inside?.classList.remove('drop-inside');
+  drag.inside = row;
+  row?.classList.add('drop-inside');
+}
+
+function applyLevel(level) {
+  if (level === drag.level) return;
+  drag.level = level;
+  const f = file();
+  const shift = level - drag.rootLevel;
+  for (const row of drag.group) {
+    row.style.marginLeft = Math.max(0, levelOf(f.blocks[+row.dataset.i]) + shift) * LEVEL_PX + 'px';
+  }
+}
+
 function moveDrag(e) {
   drag.ghost.style.top = e.clientY - drag.offY + 'px';
   const lr = el.list.getBoundingClientRect();
   if (e.clientY < lr.top + 28) el.list.scrollTop -= 10;
   else if (e.clientY > lr.bottom - 28) el.list.scrollTop += 10;
   const y = e.clientY;
+
+  // Hovering the middle band of a task for a moment means "drop inside it".
+  let candidate = null;
+  for (const r of el.list.querySelectorAll('.task:not(.dragging)')) {
+    const b = r.getBoundingClientRect();
+    if (y >= b.top && y <= b.bottom) {
+      const frac = (y - b.top) / b.height;
+      if (frac > 0.3 && frac < 0.7) candidate = r;
+      break;
+    }
+  }
+  if (candidate !== drag.insideCandidate) {
+    drag.insideCandidate = candidate;
+    clearTimeout(drag.insideTimer);
+    setInside(null);
+    if (candidate) {
+      drag.insideTimer = setTimeout(() => { if (drag && drag.insideCandidate === candidate) setInside(candidate); }, INSIDE_DWELL_MS);
+    }
+  }
+  if (drag.inside) return; // placeholder stays put while an inside-drop is armed
+
   let target = null;
   for (const r of el.list.querySelectorAll('.block:not(.blank):not(.dragging)')) {
     const b = r.getBoundingClientRect();
@@ -432,18 +581,25 @@ function moveDrag(e) {
   if (visibleNext(drag.group[drag.group.length - 1]) !== ref) {
     for (const row of drag.group) el.list.insertBefore(row, ref);
   }
-  // Horizontal movement nests / un-nests the whole subtree.
-  const want = drag.rootLevel + Math.round((e.clientX - drag.x) / 24);
+  // A slight move to the right nests under the item above the drop point.
+  const want = Math.round((e.clientX - drag.originX) / LEVEL_PX);
   const max = prevLevelInDom(drag.row) + 1;
-  const level = Math.max(0, Math.min(max, want));
-  if (level !== drag.level) {
-    drag.level = level;
-    const f = file();
-    const shift = level - drag.rootLevel;
-    for (const row of drag.group) {
-      row.style.marginLeft = Math.max(0, levelOf(f.blocks[+row.dataset.i]) + shift) * LEVEL_PX + 'px';
-    }
+  applyLevel(Math.max(0, Math.min(max, want)));
+}
+
+/** Move the dragged group so it becomes the last child of `target` (in the DOM). */
+function placeInside(target) {
+  const f = file();
+  const ti = +target.dataset.i;
+  const end = subtreeEnd(f.blocks, ti);
+  let last = null;
+  for (let k = end - 1; k >= ti; k--) {
+    const r = rowAt(k);
+    if (r && !r.classList.contains('dragging')) { last = r; break; }
   }
+  let ref = (last || target).nextSibling;
+  for (const row of drag.group) { el.list.insertBefore(row, ref); ref = row.nextSibling; }
+  applyLevel(levelOf(f.blocks[ti]) + 1);
 }
 
 function snapGroup(group) {
@@ -451,24 +607,29 @@ function snapGroup(group) {
   // hop above the blanks so the items stay inside the previous section.
   const first = group[0], last = group[group.length - 1];
   const next = visibleNext(last);
-  const endsSection = !next || next.classList.contains('heading') || next.classList.contains('add-row');
+  const endsSection = !next || next.classList.contains('heading') || next.classList.contains('rule') || next.classList.contains('add-row');
   if (!endsSection) return;
   let prev = first.previousElementSibling, firstBlank = null;
   while (prev && prev.classList.contains('blank')) { firstBlank = prev; prev = prev.previousElementSibling; }
+  // A blank right after a heading/divider is that element's spacing, not the section's tail.
+  if (!prev || prev.classList.contains('heading') || prev.classList.contains('rule')) return;
   if (firstBlank) for (const row of group) el.list.insertBefore(row, firstBlank);
 }
 
 function endDrag() {
   if (!drag) return;
-  const d = drag; drag = null;
-  if (!d.active) return;
+  const d = drag;
+  if (!d.active) { drag = null; return; }
+  clearTimeout(d.insideTimer);
+  if (d.inside) { placeInside(d.inside); d.inside.classList.remove('drop-inside'); }
+  drag = null;
   S.dragging = false;
   document.body.classList.remove('is-dragging');
   d.ghost.remove();
   for (const row of d.group) row.classList.remove('dragging');
   S.suppressClick = true;
   setTimeout(() => (S.suppressClick = false), 0);
-  snapGroup(d.group);
+  if (!d.inside) snapGroup(d.group);
   const f = file(); if (!f) return;
   const order = [];
   for (const x of el.list.querySelectorAll('.block')) {
@@ -684,7 +845,7 @@ el.hide.addEventListener('click', () => invoke('hide_window'));
 /* ── window dragging: anything that isn't interactive moves the window ── */
 document.addEventListener('mousedown', (e) => {
   if (e.button !== 0) return;
-  if (e.target.closest('input, textarea, button, select, a, .task, .heading, .para, .tab, .popover, .modal, .add-row, .md-host')) return;
+  if (e.target.closest('input, textarea, button, select, a, .task, .heading, .para, .tab, .popover, .modal, .ctx, .add-row, .md-host')) return;
   appWindow.startDragging();
 });
 document.addEventListener('contextmenu', (e) => {
@@ -696,6 +857,7 @@ document.addEventListener('keydown', (e) => {
   const mod = e.metaKey || e.ctrlKey;
   if (e.key === 'Escape') {
     if (!el.modal.hidden) { S.modalResolve?.(false); return; }
+    if (!el.ctx.hidden) { closeCtx(); return; }
     if (!el.settings.hidden) { toggleSettings(false); return; }
     if (S.editing) return; // handled by the input itself
     if (e.target.closest('.md-host')) return; // vim owns Escape inside the editor

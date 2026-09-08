@@ -140,6 +140,23 @@ fn create_file(state: State<AppState>, name: String) -> Result<CreateResult, Str
 }
 
 #[tauri::command]
+fn rename_file(state: State<AppState>, from: String, to: String) -> Result<CreateResult, String> {
+    let mut store = state.store.lock().unwrap();
+    let name = store.rename(&from, &to).map_err(err)?;
+    Ok(CreateResult {
+        name,
+        snapshot: store.snapshot(),
+    })
+}
+
+#[tauri::command]
+fn set_tab_order(state: State<AppState>, names: Vec<String>) -> Result<Snapshot, String> {
+    let mut store = state.store.lock().unwrap();
+    store.set_order(&names).map_err(err)?;
+    Ok(store.snapshot())
+}
+
+#[tauri::command]
 fn delete_file(state: State<AppState>, name: String) -> Result<Snapshot, String> {
     let mut store = state.store.lock().unwrap();
     store.delete(&name).map_err(err)?;
@@ -510,6 +527,8 @@ pub fn run() {
             save_blocks,
             save_raw,
             create_file,
+            rename_file,
+            set_tab_order,
             delete_file,
             update_settings,
             window_ready,

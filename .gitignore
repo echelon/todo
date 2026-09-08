@@ -4,3 +4,4 @@ prompts/
 **/gen/schemas
 *.log
 .DS_Store
+node_modules/

@@ -6,7 +6,9 @@ files; edit them in the app or in any editor and both stay in sync.
 - **Rust workspace**: `todo-core` (config, palettes, markdown model, storage —
   no UI deps, fully unit-tested) and `todo-app` (the Tauri 2 shell).
 - **Zero-framework frontend**: three static files in `ui/`, no bundler, no
-  `node_modules`. The whole UI is ~600 lines of vanilla JS.
+  `node_modules` at build time. The list view is ~700 lines of vanilla JS;
+  the markdown view lazy-loads a prebuilt CodeMirror 6 + vim bundle
+  (`ui/vendor/editor.js`, rebuilt from `tools/editor` with `npm run build`).
 - **Markdown is the database**:
 
   ```markdown
@@ -17,14 +19,27 @@ files; edit them in the app or in any editor and both stay in sync.
   ```
 
   Every `*.md` in your todo directory is a tab. Unknown lines pass through
-  untouched, so the app never mangles your files.
+  untouched, so the app never mangles your files. Drag tabs left or right to
+  reorder them; the order is kept in `tabs.toml` next to the lists
+  (`order = ["Work", "Home"]`). Anything not listed follows alphabetically,
+  and a missing or broken `tabs.toml` simply means alphabetical.
 
 ## Features
 
 - Rendered list view with pointer-based drag & drop reordering, click-to-edit,
   Enter to insert the next item, hover ✕ to delete (with confirmation).
-- Markdown view (`⌘/Ctrl+E`) editing the raw file, saved as you type. Deleting
-  there is immediate, as you'd expect from a text editor.
+- Nested todos: indent with two spaces in markdown, or `Tab` / `Shift+Tab`
+  while editing an item. Dragging a parent moves its whole subtree. To nest
+  while dragging, either drop slightly to the right below another item, or
+  hover over the middle of an item until it shows "drop inside" and release
+  to file it as that item's last child. `---` renders as a divider.
+- Markdown view (`⌘/Ctrl+E`) is a CodeMirror 6 editor with **vim
+  keybindings** (normal / insert / visual / visual-line / visual-block,
+  operators, motions, text objects, counts, registers, `.` repeat, `/` `?` `n`
+  `N` search, `:s`, marks; `:w` saves, `:q` returns to the list). Enter
+  continues `- [ ]` lists. Saves as you type. Toggle vim in settings or with
+  `editor.vim` in the config. Deleting there is immediate, as you'd expect
+  from a text editor.
 - Live sync: the todo directory is watched (OS notifications + a 1 s poll as a
   safety net). External edits appear instantly; the app's own writes are
   filtered so nothing flickers. Writes are atomic (temp file + rename).
@@ -59,9 +74,13 @@ comments preserved.
 | `tray.visible_on_all_workspaces` | `true` | summon on the current desktop |
 | `shortcuts.toggle_window` | `"CmdOrCtrl+Shift+Space"` | `""` disables |
 
-**Schemes**: `black`, `white`, `forest_mist`, `midnight_blue`, `nord`,
-`dracula`, `gruvbox_dark`, `gruvbox_light`, `solarized_dark`,
-`solarized_light`, `catppuccin_mocha`, `rose_pine_dawn`.
+| `editor.vim` | `true` | vim keybindings in the markdown view |
+
+**Dark schemes**: `black`, `forest_mist`, `midnight_blue`, `nord`, `dracula`,
+`gruvbox_dark`, `solarized_dark`, `catppuccin_mocha`, `molokai_dark`.
+**Light schemes**: `white`, `forest_light`, `gruvbox_light`,
+`solarized_light`, `rose_pine_dawn`, `molokai_light`, `sepia`, `lavender`,
+`ocean_light`, `sunrise`, `nord_light`, `catppuccin_latte`.
 
 ## Keyboard
 
@@ -73,9 +92,11 @@ comments preserved.
 | `⌘/Ctrl+1…9` | switch tab |
 | `⌘/Ctrl+,` | settings |
 | `Enter` while editing | commit and start the next item |
+| `Tab` / `Shift+Tab` while editing | nest / un-nest the item (and its subtree) |
 | `Esc` | cancel edit / close popover / hide to tray |
 | `⌘/Ctrl+Shift+Space` | global: show / hide |
-| right-click a tab | delete that list |
+| double-click a tab | rename that list (renames the `.md` file) |
+| right-click a tab | menu: rename / delete that list |
 
 ## Building
 

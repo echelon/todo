@@ -43,7 +43,6 @@ const highlight = HighlightStyle.define([
   { tag: t.heading1, fontWeight: '700', color: 'var(--fg)' },
   { tag: [t.heading2, t.heading3, t.heading4, t.heading5, t.heading6], fontWeight: '600', color: 'var(--fg)' },
   { tag: t.processingInstruction, color: 'var(--accent)' }, // `#`, `- `, `[ ]`
-  { tag: t.list, color: 'var(--accent)' },
   { tag: t.atom, color: 'var(--accent)' },
   { tag: [t.link, t.url], color: 'var(--accent)', textDecoration: 'underline' },
   { tag: t.emphasis, fontStyle: 'italic' },

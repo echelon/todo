@@ -11,10 +11,13 @@ todo_dir = "~/todos"
 #   "follow_os" – follow the OS appearance (which may switch by time of day)
 appearance = "follow_os"
 
-# Available schemes:
-#   black, white, forest_mist, midnight_blue, nord, dracula,
-#   gruvbox_dark, gruvbox_light, solarized_dark, solarized_light,
-#   catppuccin_mocha, rose_pine_dawn
+# Dark schemes:
+#   black, forest_mist, midnight_blue, nord, dracula, gruvbox_dark,
+#   solarized_dark, catppuccin_mocha, molokai_dark
+# Light schemes:
+#   white, forest_light, gruvbox_light, solarized_light, rose_pine_dawn,
+#   molokai_light, sepia, lavender, ocean_light, sunrise, nord_light,
+#   catppuccin_latte
 dark_scheme = "midnight_blue"
 light_scheme = "white"
 

@@ -36,6 +36,7 @@ kbd { font-family: var(--mono); background: var(--surface); border: 1px solid va
 }
 .tab:hover { background: var(--surface); color: var(--fg); }
 .tab.active { background: var(--surface); color: var(--fg); font-weight: 600; }
+.tab.dragging { opacity: .5; outline: 1.5px dashed var(--accent); outline-offset: -1px; }
 .tab-input {
   background: var(--surface); border: 1px solid var(--accent); color: var(--fg); border-radius: 6px;
   padding: 2px 6px; font: inherit; font-size: .92em; width: 100px; outline: none; flex-shrink: 0;
@@ -76,7 +77,12 @@ kbd { font-family: var(--mono); background: var(--surface); border: 1px solid va
 body.is-dragging, body.is-dragging * { cursor: grabbing !important; }
 .rule { border-top: 1px solid var(--border); margin: 10px 6px; height: 0; }
 .task:hover { background: var(--surface); }
-.task.dragging { opacity: .25; }
+.task.dragging { opacity: .35; outline: 1.5px dashed var(--accent); outline-offset: -1px; }
+.task.drop-inside { background: var(--surface); box-shadow: inset 0 0 0 2px var(--accent); }
+.task.drop-inside::after {
+  content: 'drop inside'; position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+  font-size: .7em; color: var(--accent); letter-spacing: .04em; text-transform: uppercase; pointer-events: none;
+}
 .task .check {
   width: 16px; height: 16px; margin-top: .22em; border: 1.5px solid var(--muted); border-radius: 5px;
   background: transparent; flex-shrink: 0; display: grid; place-items: center; padding: 0; color: var(--accent-fg);
@@ -96,7 +102,7 @@ body.is-dragging, body.is-dragging * { cursor: grabbing !important; }
 
 .ghost {
   position: fixed; pointer-events: none; z-index: 100; background: var(--surface); border-radius: 7px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, .35); transform: scale(1.02); opacity: .96; margin: 0;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .35); transform: scale(1.02); opacity: .7; margin: 0;
 }
 .ghost .task { opacity: 1; }
 .ghost .del { opacity: 0; }
@@ -142,6 +148,13 @@ input[type=checkbox] { accent-color: var(--accent); width: 15px; height: 15px; m
 .actions button.danger { color: var(--danger); }
 .hint { color: var(--muted); font-size: .8em; margin-top: 8px; overflow-wrap: anywhere; }
 
+.ctx {
+  position: absolute; z-index: 55; min-width: 130px; display: flex; flex-direction: column; padding: 4px;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 10px 28px rgba(0, 0, 0, .35);
+}
+.ctx button { text-align: left; border: none; background: transparent; color: var(--fg); padding: 5px 10px; border-radius: 5px; font-size: .92em; }
+.ctx button:hover { background: var(--surface); }
+.ctx button.danger { color: var(--danger); }
 .modal { position: absolute; inset: 0; background: rgba(0, 0, 0, .35); display: grid; place-items: center; z-index: 60; }
 .dialog {
   background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; min-width: 220px; max-width: 85%;

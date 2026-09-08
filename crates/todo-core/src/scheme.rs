@@ -19,6 +19,15 @@ pub enum ColorScheme {
     SolarizedLight,
     CatppuccinMocha,
     RosePineDawn,
+    MolokaiDark,
+    MolokaiLight,
+    ForestLight,
+    Sepia,
+    Lavender,
+    OceanLight,
+    Sunrise,
+    NordLight,
+    CatppuccinLatte,
 }
 
 /// A resolved set of colors. All values are `#rrggbb` hex strings.
@@ -45,7 +54,7 @@ pub struct Palette {
 }
 
 impl ColorScheme {
-    pub const ALL: [ColorScheme; 12] = [
+    pub const ALL: [ColorScheme; 21] = [
         ColorScheme::Black,
         ColorScheme::White,
         ColorScheme::ForestMist,
@@ -58,6 +67,15 @@ impl ColorScheme {
         ColorScheme::SolarizedLight,
         ColorScheme::CatppuccinMocha,
         ColorScheme::RosePineDawn,
+        ColorScheme::MolokaiDark,
+        ColorScheme::MolokaiLight,
+        ColorScheme::ForestLight,
+        ColorScheme::Sepia,
+        ColorScheme::Lavender,
+        ColorScheme::OceanLight,
+        ColorScheme::Sunrise,
+        ColorScheme::NordLight,
+        ColorScheme::CatppuccinLatte,
     ];
 
     /// The `snake_case` identifier used in the config file.
@@ -75,6 +93,15 @@ impl ColorScheme {
             ColorScheme::SolarizedLight => "solarized_light",
             ColorScheme::CatppuccinMocha => "catppuccin_mocha",
             ColorScheme::RosePineDawn => "rose_pine_dawn",
+            ColorScheme::MolokaiDark => "molokai_dark",
+            ColorScheme::MolokaiLight => "molokai_light",
+            ColorScheme::ForestLight => "forest_light",
+            ColorScheme::Sepia => "sepia",
+            ColorScheme::Lavender => "lavender",
+            ColorScheme::OceanLight => "ocean_light",
+            ColorScheme::Sunrise => "sunrise",
+            ColorScheme::NordLight => "nord_light",
+            ColorScheme::CatppuccinLatte => "catppuccin_latte",
         }
     }
 
@@ -93,6 +120,15 @@ impl ColorScheme {
             ColorScheme::SolarizedLight => "Solarized Light",
             ColorScheme::CatppuccinMocha => "Catppuccin Mocha",
             ColorScheme::RosePineDawn => "Rosé Pine Dawn",
+            ColorScheme::MolokaiDark => "Molokai Dark",
+            ColorScheme::MolokaiLight => "Molokai Light",
+            ColorScheme::ForestLight => "Forest Light",
+            ColorScheme::Sepia => "Sepia",
+            ColorScheme::Lavender => "Lavender",
+            ColorScheme::OceanLight => "Ocean Light",
+            ColorScheme::Sunrise => "Sunrise",
+            ColorScheme::NordLight => "Nord Light",
+            ColorScheme::CatppuccinLatte => "Catppuccin Latte",
         }
     }
 
@@ -103,6 +139,14 @@ impl ColorScheme {
                 | ColorScheme::GruvboxLight
                 | ColorScheme::SolarizedLight
                 | ColorScheme::RosePineDawn
+                | ColorScheme::MolokaiLight
+                | ColorScheme::ForestLight
+                | ColorScheme::Sepia
+                | ColorScheme::Lavender
+                | ColorScheme::OceanLight
+                | ColorScheme::Sunrise
+                | ColorScheme::NordLight
+                | ColorScheme::CatppuccinLatte
         )
     }
 
@@ -156,6 +200,47 @@ impl ColorScheme {
             ColorScheme::RosePineDawn => [
                 "#faf4ed", "#fffaf3", "#575279", "#9893a5", "#d7827e", "#faf4ed", "#efe6dd",
                 "#b4637a",
+            ],
+            // Molokai (Tomas Restrepo's vim take on Monokai): near-black #1b1d1e,
+            // the classic #f8f8f2 text, magenta #f92672 and orange #fd971f.
+            ColorScheme::MolokaiDark => [
+                "#1b1d1e", "#272a2b", "#f8f8f2", "#7e8e91", "#f92672", "#1b1d1e", "#3a3d3e",
+                "#fd971f",
+            ],
+            // Monokai's light variant: #fafafa paper, #272822 ink, with the
+            // magenta and orange darkened enough to read on white.
+            ColorScheme::MolokaiLight => [
+                "#fafafa", "#f0efe9", "#272822", "#8b8b7f", "#d81b60", "#ffffff", "#e4e3dc",
+                "#e65100",
+            ],
+            ColorScheme::ForestLight => [
+                "#f3f7f2", "#e6eee4", "#24402c", "#6f8a75", "#2f8f5b", "#ffffff", "#d5e2d3",
+                "#c0392b",
+            ],
+            ColorScheme::Sepia => [
+                "#f4ecd8", "#eadfc6", "#5b4636", "#9a8468", "#b0713f", "#ffffff", "#e0d3b7",
+                "#b23a3a",
+            ],
+            ColorScheme::Lavender => [
+                "#f7f5fb", "#ece8f5", "#2e2a3f", "#8a84a3", "#7c5cbf", "#ffffff", "#dfd9ee",
+                "#d13c5e",
+            ],
+            ColorScheme::OceanLight => [
+                "#f2f8fb", "#e3eef5", "#1d3040", "#6b8394", "#1f7fb8", "#ffffff", "#d2e2ec",
+                "#d64545",
+            ],
+            ColorScheme::Sunrise => [
+                "#fff7f0", "#fdeadb", "#3d2a20", "#9a7d6c", "#e8743b", "#ffffff", "#f1dccb",
+                "#c62828",
+            ],
+            // Nord's "Snow Storm" side.
+            ColorScheme::NordLight => [
+                "#eceff4", "#e5e9f0", "#2e3440", "#6b7386", "#5e81ac", "#eceff4", "#d8dee9",
+                "#bf616a",
+            ],
+            ColorScheme::CatppuccinLatte => [
+                "#eff1f5", "#e6e9ef", "#4c4f69", "#8c8fa1", "#8839ef", "#eff1f5", "#ccd0da",
+                "#d20f39",
             ],
         };
         Palette {

@@ -12,7 +12,7 @@ pub mod store;
 pub use config::{Appearance, Config, EditorConfig, ShortcutConfig, TrayConfig, WindowConfig};
 pub use markdown::{Block, Document};
 pub use scheme::{ColorScheme, Palette};
-pub use store::{Snapshot, Store, TodoFile};
+pub use store::{parse_order, Snapshot, Store, TodoFile, ORDER_FILE};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
