@@ -230,17 +230,23 @@ export const scenarios: Scenario[] = [
 
   { name: 'progress badges', active: 'Work', async run({ mock, check }) {
     const badgeOf = (name: string): string => tab(name)?.querySelector('.badge')?.textContent ?? '';
-    check('badges off by default', q('#badge-btn')!.textContent === 'off' && !q('.tab .badge'));
+    const btn = (): string => q('#badge-btn .sample')?.textContent ?? '';
+    const ringOffset = (): number => parseFloat(qa<SVGCircleElement>('#badge-btn .ring circle')[1]?.getAttribute('stroke-dashoffset') ?? '-1');
+    check('badges off by default', btn() === 'off' && !q('.tab .badge') && !!q('#badge-btn .ring'));
+    { const b = q('#badge-btn')!; const cs = getComputedStyle(b); check('button lays out ring and text side by side', /flex/.test(cs.display) && b.offsetWidth > 30 && b.offsetWidth < 70 && b.offsetHeight <= 26); }
     q('#badge-btn')!.click(); await sleep(10);
-    check('ratio badge', mock.config.tabs.badge === 'ratio' && q('#badge-btn')!.textContent === 'n/n' && badgeOf('Work') === '1/6' && badgeOf('Home') === '');
+    check('ratio badge, button previews the active tab', mock.config.tabs.badge === 'ratio' && btn() === '1/6' && badgeOf('Work') === '1/6' && badgeOf('Home') === '');
+    check('ring shows 1/6 done', Math.abs(ringOffset() - 2 * Math.PI * 5.5 * (5 / 6)) < 0.05);
     q('#badge-btn')!.click(); await sleep(10);
-    check('percent badge', q('#badge-btn')!.textContent === '%' && badgeOf('Work') === '17%');
+    check('percent badge', btn() === '17%' && badgeOf('Work') === '17%');
     q('#badge-btn')!.click(); await sleep(10);
-    check('remaining badge', q('#badge-btn')!.textContent === 'rem' && badgeOf('Work') === '(5)');
+    check('remaining badge', btn() === '(5)' && badgeOf('Work') === '(5)');
     qa('#list .task .check')[0].click(); await sleep(10);
-    check('badge updates on toggle', badgeOf('Work') === '(4)');
+    check('badge + button update on toggle', badgeOf('Work') === '(4)' && btn() === '(4)' && Math.abs(ringOffset() - 2 * Math.PI * 5.5 * (4 / 6)) < 0.05);
+    tab('Home')!.click(); await sleep(10);
+    check('empty list shows a placeholder preview', btn() === '(2)' && q('#badge-btn')!.classList.contains('placeholder'));
     q('#badge-btn')!.click(); await sleep(10);
-    check('badges cycle back to off', q('#badge-btn')!.textContent === 'off' && !q('.tab .badge'));
+    check('badges cycle back to off', btn() === 'off' && !q('.tab .badge') && /Click for completed\/total/.test(q('#badge-btn')!.title));
   } },
 
   { name: 'nesting: subtree drag, tab indent, no adoption', active: 'Work', async run({ F, check }) {
@@ -312,6 +318,42 @@ export const scenarios: Scenario[] = [
     check('subtree deleted', F.Home === '# Home\n\n');
     key('Escape');
     check('escape clears selection', state().selected === null);
+  } },
+
+  { name: 'inactive fade', async run({ mock, check }) {
+    const opacity = (): string => getComputedStyle(document.documentElement).getPropertyValue('--opacity').trim();
+    check('slider disabled while off', opacity() === '0.92' && q<HTMLInputElement>('#s-fade-opacity')!.disabled);
+    mock.emit('todo:focus', false); await sleep(5);
+    check('no fade while the setting is off', opacity() === '0.92');
+    const fade = q<HTMLInputElement>('#s-fade')!; fade.checked = true; fade.dispatchEvent(new Event('change')); await sleep(10);
+    check('enabled + persisted', mock.config.window.inactive_opacity_enabled && !q<HTMLInputElement>('#s-fade-opacity')!.disabled);
+    check('fades when unfocused', opacity() === '0.5');
+    document.documentElement.dispatchEvent(new MouseEvent('mouseenter')); await sleep(5);
+    check('hover restores', opacity() === '0.92');
+    document.documentElement.dispatchEvent(new MouseEvent('mouseleave')); await sleep(5);
+    check('leaving fades again', opacity() === '0.5');
+    mock.emit('todo:focus', true); await sleep(5);
+    check('focus restores', opacity() === '0.92');
+    const slider = q<HTMLInputElement>('#s-fade-opacity')!; slider.value = '0.3'; slider.dispatchEvent(new Event('input')); await sleep(260);
+    mock.emit('todo:focus', false); await sleep(5);
+    check('custom faded opacity persisted and applied', mock.config.window.inactive_opacity === 0.3 && opacity() === '0.3');
+    fade.checked = false; fade.dispatchEvent(new Event('change')); await sleep(10);
+    check('turning it off restores immediately', opacity() === '0.92' && !mock.config.window.inactive_opacity_enabled);
+  } },
+
+  { name: 'mirror to the other side of the screen', async run({ mock, check }) {
+    const btn = q('#mirror-btn')!;
+    const filled = (): string => btn.querySelector('g rect')?.getAttribute('x') ?? '';
+    check('starts on the left, icon shades the right half', btn.dataset.target === 'right' && filled() === '12' && /right side/.test(btn.title));
+    btn.click(); await sleep(10);
+    check('click asks the backend to mirror', mock.calls.includes('mirror_window') && mock.side === 'right');
+    check('icon now shades the left half', btn.dataset.target === 'left' && filled() === '4' && /left side/.test(btn.title));
+    btn.click(); await sleep(10);
+    check('click again jumps back', mock.side === 'left' && btn.dataset.target === 'right');
+    key('ArrowRight', { metaKey: true, shiftKey: true }); await sleep(10);
+    check('cmd+shift+arrow mirrors too', mock.side === 'right');
+    mock.emit('todo:moved', 'left'); await sleep(5);
+    check('dragging the window elsewhere updates the icon', btn.dataset.target === 'right');
   } },
 
   { name: 'settings', async run({ mock, check }) {

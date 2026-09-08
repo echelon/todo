@@ -8,6 +8,7 @@ import { el, rowAt, S, targetEl } from './state.ts';
 import { newListPrompt, setActive } from './tabs.ts';
 import { appWindow, invoke } from './tauri.ts';
 import { closeCtx } from './ui.ts';
+import { mirrorWindow } from './window.ts';
 
 document.addEventListener('mousedown', (e) => {
   if (e.button !== 0) return;
@@ -58,6 +59,7 @@ document.addEventListener('keydown', (e) => {
   else if ((e.key === 'n' || e.key === 'N') && e.shiftKey) { e.preventDefault(); newListPrompt(); }
   else if (e.key === 'n') { e.preventDefault(); if (S.view !== 'rendered') setView('rendered'); el.list.querySelector<HTMLElement>('.add')?.focus(); }
   else if (e.key === ',') { e.preventDefault(); toggleSettings(); }
+  else if (e.shiftKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) { e.preventDefault(); void mirrorWindow(); }
   else if (e.key === 'w') { e.preventDefault(); void invoke('hide_window'); }
   else if (e.key >= '1' && e.key <= '9') {
     const f = S.snap?.files[+e.key - 1];

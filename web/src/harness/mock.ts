@@ -27,7 +27,7 @@ function defaultConfig(): Config {
   return {
     todo_dir: '~/todos', dark_scheme: 'midnight_blue', light_scheme: 'white', appearance: 'dark', font_size: 14,
     font_family: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif",
-    window: { opacity: 0.92, always_on_top: false, width: 380, height: 540, corner_radius: 12, start_hidden: false },
+    window: { opacity: 0.92, inactive_opacity_enabled: false, inactive_opacity: 0.5, always_on_top: false, width: 380, height: 540, corner_radius: 12, start_hidden: false },
     tray: { close_to_tray: true, hide_dock_icon: true, skip_taskbar: true, visible_on_all_workspaces: true },
     shortcuts: { toggle_window: 'CmdOrCtrl+Shift+Space' },
     editor: { vim: true },
@@ -73,6 +73,7 @@ export class MockBackend {
   order: string[] = [];
   colors: Record<string, string> = {};
   calls: string[] = [];
+  side: 'left' | 'right' = 'left';
   private listeners: Record<string, ((ev: { payload: unknown }) => void)[]> = {};
 
   constructor() { this.reset(); }
@@ -84,6 +85,7 @@ export class MockBackend {
     this.order = [];
     this.colors = {};
     this.calls = [];
+    this.side = 'left';
   }
 
   private rank(n: string): number { const i = this.order.indexOf(n); return i < 0 ? 1e9 : i; }
@@ -136,7 +138,7 @@ export class MockBackend {
       case 'update_settings': {
         const patch = (a as { patch: SettingsPatch }).patch;
         for (const [k, v] of Object.entries(patch) as [keyof SettingsPatch, never][]) {
-          if (k === 'opacity' || k === 'always_on_top') (this.config.window as unknown as Record<string, unknown>)[k] = v;
+          if (k === 'opacity' || k === 'always_on_top' || k === 'inactive_opacity_enabled' || k === 'inactive_opacity') (this.config.window as unknown as Record<string, unknown>)[k] = v;
           else if (k === 'close_to_tray' || k === 'visible_on_all_workspaces') (this.config.tray as unknown as Record<string, unknown>)[k] = v;
           else if (k === 'vim') this.config.editor.vim = v;
           else if (k === 'tab_overflow') this.config.tabs.overflow = v;
@@ -145,6 +147,8 @@ export class MockBackend {
         }
         return this.cfgPayload() as Commands[K][1];
       }
+      case 'get_window_side': return this.side as Commands[K][1];
+      case 'mirror_window': this.side = this.side === 'left' ? 'right' : 'left'; return this.side as Commands[K][1];
       case 'log': console.log('[ui]', (a as { msg: string }).msg); return undefined as Commands[K][1];
       case 'window_ready': case 'hide_window': case 'open_config': case 'open_todo_dir': case 'quit':
         console.log('[' + cmd + ']'); return undefined as Commands[K][1];

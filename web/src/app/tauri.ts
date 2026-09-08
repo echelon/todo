@@ -1,5 +1,5 @@
 /** Typed bridge to the Tauri backend (or the harness mock that stands in for it). */
-import type { Block, ConfigPayload, CreateResult, SettingsPatch, Snapshot } from './types.ts';
+import type { Block, ConfigPayload, CreateResult, SettingsPatch, Side, Snapshot } from './types.ts';
 
 /** command → [args, result] */
 export interface Commands {
@@ -15,6 +15,8 @@ export interface Commands {
   update_settings: [{ patch: SettingsPatch }, ConfigPayload];
   window_ready: [void, void];
   hide_window: [void, void];
+  get_window_side: [void, Side | null];
+  mirror_window: [void, Side];
   open_config: [void, void];
   open_todo_dir: [void, void];
   quit: [void, void];

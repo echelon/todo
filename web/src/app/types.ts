@@ -48,6 +48,8 @@ export interface Config {
   font_family: string;
   window: {
     opacity: number;
+    inactive_opacity_enabled: boolean;
+    inactive_opacity: number;
     always_on_top: boolean;
     width: number;
     height: number;
@@ -85,6 +87,8 @@ export interface SettingsPatch {
   light_scheme?: string;
   dark_scheme?: string;
   opacity?: number;
+  inactive_opacity_enabled?: boolean;
+  inactive_opacity?: number;
   always_on_top?: boolean;
   font_size?: number;
   close_to_tray?: boolean;
@@ -98,3 +102,6 @@ export interface CreateResult {
   name: string;
   snapshot: Snapshot;
 }
+
+/** Which half of the monitor the window sits on. */
+export type Side = 'left' | 'right';

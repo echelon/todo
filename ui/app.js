@@ -141,7 +141,6 @@
     return out;
   }
   var BADGE_MODES = ["none", "ratio", "percent", "remaining"];
-  var BADGE_LABELS = { none: "off", ratio: "n/n", percent: "%", remaining: "rem" };
   var nextBadgeMode = (m) => BADGE_MODES[(BADGE_MODES.indexOf(m) + 1) % BADGE_MODES.length];
   var TAB_COLORS = [
     ["Red", "#e5484d"],
@@ -158,6 +157,10 @@
     const n = parseInt(h.slice(1), 16);
     return `${n >> 16 & 255}, ${n >> 8 & 255}, ${n & 255}`;
   }
+  function effectiveOpacity(w, focused, hovered) {
+    if (w.inactive_opacity_enabled && !focused && !hovered) return w.inactive_opacity;
+    return w.opacity;
+  }
 
   // src/app/state.ts
   var S = {
@@ -172,12 +175,18 @@
     mdTimer: void 0,
     mdDirty: false,
     opacityTimer: void 0,
+    fadeTimer: void 0,
     /** Index of the selected task row (rendered view). */
     selected: null,
     /** Internal clipboard: blocks plus the markdown we put on the system clipboard. */
     clip: null,
     clipText: "",
-    modalResolve: null
+    modalResolve: null,
+    /** Window focus (from Tauri's Focused event) and pointer-over state, for the inactive fade. */
+    focused: true,
+    hovered: false,
+    /** Which half of the monitor the window is on (null until the backend tells us). */
+    side: null
   };
   var file = () => S.snap?.files.find((f) => f.name === S.active);
   function $(sel) {
@@ -196,6 +205,7 @@
     viewSeg: $("#view-seg"),
     badgeBtn: $("#badge-btn"),
     pin: $("#pin-btn"),
+    mirror: $("#mirror-btn"),
     hide: $("#hide-btn"),
     settingsBtn: $("#settings-btn"),
     settings: $("#settings"),
@@ -210,6 +220,8 @@
     sDark: $("#s-dark"),
     sOpacity: $("#s-opacity"),
     sFont: $("#s-font"),
+    sFade: $("#s-fade"),
+    sFadeOpacity: $("#s-fade-opacity"),
     sTop: $("#s-top"),
     sClose: $("#s-close"),
     sSpaces: $("#s-spaces"),
@@ -455,6 +467,7 @@
     el.tabs.querySelector(".tab.active")?.scrollIntoView({ inline: "nearest", block: "nearest" });
   }
   function updateActiveBadge() {
+    renderBadgeButton();
     if (badgeMode() === "none") return;
     const f = file();
     const tab = f && tabFor(f.name);
@@ -471,6 +484,25 @@
       else sp.remove();
     }
   }
+  function renderBadgeButton() {
+    const mode = badgeMode();
+    const f = file();
+    const { total, done } = f ? taskCounts(f.blocks) : { total: 0, done: 0 };
+    const frac = total ? done / total : 0;
+    const r = 5.5, c = 2 * Math.PI * r;
+    const ring = `<svg class="ring" viewBox="0 0 16 16" aria-hidden="true">
+    <circle cx="8" cy="8" r="${r}" fill="none" stroke="currentColor" stroke-opacity=".25" stroke-width="2"/>
+    <circle cx="8" cy="8" r="${r}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+      stroke-dasharray="${c.toFixed(2)}" stroke-dashoffset="${(c * (1 - frac)).toFixed(2)}" transform="rotate(-90 8 8)"/>
+  </svg>`;
+    const sample = mode === "none" ? "off" : f && total ? badgeText(f.blocks, mode) : { ratio: "3/5", percent: "60%", remaining: "(2)" }[mode];
+    el.badgeBtn.innerHTML = ring + `<span class="sample">${sample}</span>`;
+    el.badgeBtn.classList.toggle("active", mode !== "none");
+    el.badgeBtn.classList.toggle("placeholder", mode !== "none" && !(f && total));
+    const next = BADGE_MODES[(BADGE_MODES.indexOf(mode) + 1) % BADGE_MODES.length];
+    const names = { none: "off", ratio: "completed/total", percent: "percent done", remaining: "(remaining)" };
+    el.badgeBtn.title = `Progress next to tab titles: ${names[mode]}. Click for ${names[next]}.`;
+  }
   var tabFor = (name) => el.tabs.querySelector(`.tab[data-name="${CSS.escape(name)}"]`);
   function setActive(name) {
     if (name === S.active) return;
@@ -481,6 +513,7 @@
     localStorage.setItem("active", name ?? "");
     renderTabs();
     refreshView();
+    renderBadgeButton();
   }
   el.tabs.addEventListener("click", (e) => {
     if (S.suppressClick) return;
@@ -1295,13 +1328,30 @@
     for (const k of ["bg", "surface", "fg", "muted", "accent", "border", "danger"]) r.setProperty("--" + k, p[k]);
     r.setProperty("--accent-fg", p.accent_fg);
     r.setProperty("--bg-rgb", hexToRgb(p.bg));
-    r.setProperty("--opacity", String(c.window.opacity));
+    applyOpacity();
     r.setProperty("--radius", c.window.corner_radius + "px");
     r.setProperty("--font-size", c.font_size + "px");
     r.setProperty("--font", c.font_family);
     document.documentElement.style.colorScheme = p.is_dark ? "dark" : "light";
     el.pin.classList.toggle("active", c.window.always_on_top);
   }
+  function applyOpacity() {
+    if (!S.cfg) return;
+    const o = effectiveOpacity(S.cfg.config.window, S.focused, S.hovered);
+    document.documentElement.style.setProperty("--opacity", String(o));
+  }
+  function setFocused(focused) {
+    S.focused = focused;
+    applyOpacity();
+  }
+  function setHovered(hovered) {
+    S.hovered = hovered;
+    applyOpacity();
+  }
+  document.documentElement.addEventListener("mouseenter", () => setHovered(true));
+  document.documentElement.addEventListener("mouseleave", () => setHovered(false));
+  window.addEventListener("focus", () => setFocused(true));
+  window.addEventListener("blur", () => setFocused(false));
 
   // src/app/settings.ts
   function fillSchemes() {
@@ -1324,6 +1374,9 @@
     el.sDark.value = c.dark_scheme ?? "midnight_blue";
     el.sOpacity.value = String(c.window.opacity);
     el.sFont.value = String(c.font_size);
+    el.sFade.checked = c.window.inactive_opacity_enabled;
+    el.sFadeOpacity.value = String(c.window.inactive_opacity);
+    el.sFadeOpacity.disabled = !c.window.inactive_opacity_enabled;
     el.sTop.checked = c.window.always_on_top;
     el.sClose.checked = c.tray.close_to_tray;
     el.sSpaces.checked = c.tray.visible_on_all_workspaces;
@@ -1332,9 +1385,8 @@
     const overflow = c.tabs?.overflow === "wrap" ? "wrap" : "scroll";
     el.sTabs.value = overflow;
     el.tabs.classList.toggle("wrap", overflow === "wrap");
-    el.badgeBtn.textContent = BADGE_LABELS[badgeMode()];
-    el.badgeBtn.classList.toggle("active", badgeMode() !== "none");
     if (S.snap) renderTabs();
+    renderBadgeButton();
     const hk = c.shortcuts.toggle_window ? `Toggle: ${c.shortcuts.toggle_window} \xB7 ` : "";
     el.sHint.textContent = `${hk}Config: ${S.cfg.config_path}`;
   }
@@ -1352,6 +1404,11 @@
   el.sDark.addEventListener("change", () => void patch({ dark_scheme: el.sDark.value }));
   el.sFont.addEventListener("change", () => void patch({ font_size: +el.sFont.value }));
   el.sTop.addEventListener("change", () => void patch({ always_on_top: el.sTop.checked }));
+  el.sFade.addEventListener("change", () => void patch({ inactive_opacity_enabled: el.sFade.checked }));
+  el.sFadeOpacity.addEventListener("input", () => {
+    clearTimeout(S.fadeTimer);
+    S.fadeTimer = setTimeout(() => void patch({ inactive_opacity: +el.sFadeOpacity.value }), 200);
+  });
   el.sClose.addEventListener("change", () => void patch({ close_to_tray: el.sClose.checked }));
   el.sSpaces.addEventListener("change", () => void patch({ visible_on_all_workspaces: el.sSpaces.checked }));
   el.sVim.addEventListener("change", () => void patch({ vim: el.sVim.checked }));
@@ -1377,6 +1434,37 @@
   });
   el.badgeBtn.addEventListener("click", () => void patch({ tab_badge: nextBadgeMode(badgeMode()) }));
   el.hide.addEventListener("click", () => void invoke("hide_window"));
+
+  // src/app/window.ts
+  function mirrorIcon(target) {
+    const half = target === "left" ? '<rect x="4" y="5" width="8" height="14" rx="1.5"/>' : '<rect x="12" y="5" width="8" height="14" rx="1.5"/>';
+    return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true">
+    <rect x="3" y="4" width="18" height="16" rx="2.5"/>
+    <g fill="currentColor" stroke="none">${half}</g>
+  </svg>`;
+  }
+  function setSide(side) {
+    S.side = side;
+    const target = side === "right" ? "left" : "right";
+    el.mirror.innerHTML = mirrorIcon(target);
+    el.mirror.dataset.target = target;
+    el.mirror.title = `Jump to the ${target} side of the screen (same distance from the edge)`;
+  }
+  async function mirrorWindow() {
+    try {
+      setSide(await invoke("mirror_window"));
+    } catch (e) {
+      toast(e);
+    }
+  }
+  async function initSide() {
+    try {
+      setSide(await invoke("get_window_side"));
+    } catch {
+      setSide(null);
+    }
+  }
+  el.mirror.addEventListener("click", () => void mirrorWindow());
 
   // src/app/keyboard.ts
   document.addEventListener("mousedown", (e) => {
@@ -1479,6 +1567,9 @@
     } else if (e.key === ",") {
       e.preventDefault();
       toggleSettings();
+    } else if (e.shiftKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+      e.preventDefault();
+      void mirrorWindow();
     } else if (e.key === "w") {
       e.preventDefault();
       void invoke("hide_window");
@@ -1507,6 +1598,8 @@
     S.mdDirty = false;
     S.dragging = false;
     S.suppressClick = false;
+    S.focused = true;
+    S.hovered = false;
     clearTimeout(S.mdTimer);
     S.cfg = cfg;
     applyTheme();
@@ -1538,6 +1631,9 @@
         syncSettingsUI();
       });
       await listen("todo:error", (p) => toast(p));
+      await listen("todo:focus", (focused) => setFocused(focused));
+      await listen("todo:moved", (side) => setSide(side));
+      await initSide();
     } catch (e) {
       toast(e);
     }

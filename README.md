@@ -72,6 +72,8 @@ comments preserved.
 | `light_scheme` / `dark_scheme` | `"white"` / `"midnight_blue"` | see schemes below |
 | `font_size` / `font_family` | `14.0` / system stack | |
 | `window.opacity` | `0.92` | `0.0` transparent … `1.0` solid |
+| `window.inactive_opacity_enabled` | `false` | fade the window while it is neither focused nor hovered |
+| `window.inactive_opacity` | `0.5` | the faded opacity (settings: "Fade when not focused") |
 | `window.always_on_top` | `false` | |
 | `window.width` / `height` / `corner_radius` | `380` / `540` / `12` | |
 | `window.start_hidden` | `false` | launch straight into the tray |
@@ -83,7 +85,7 @@ comments preserved.
 
 | `editor.vim` | `true` | vim keybindings in the markdown view |
 | `tabs.overflow` | `"scroll"` | `"scroll"` (one row) or `"wrap"` (multiple rows) when tabs don't fit |
-| `tabs.badge` | `"none"` | progress next to tab titles: `"ratio"` (3/5), `"percent"` (60%), `"remaining"` ((2)); the bottom-bar button cycles these |
+| `tabs.badge` | `"none"` | progress next to tab titles: `"ratio"` (3/5), `"percent"` (60%), `"remaining"` ((2)). The bottom-bar button shows a progress ring for the current list plus a preview of the badge, and cycles the format |
 
 **Dark schemes**: `black`, `forest_mist`, `midnight_blue`, `nord`, `dracula`,
 `gruvbox_dark`, `solarized_dark`, `catppuccin_mocha`, `molokai_dark`.
@@ -100,6 +102,7 @@ comments preserved.
 | `⌘/Ctrl+Shift+N` | new list (file) |
 | `⌘/Ctrl+1…9` | switch tab |
 | `⌘/Ctrl+,` | settings |
+| `⌘/Ctrl+Shift+←` / `→` | jump the window to the mirrored spot on the other side of the screen (also the half-shaded button in the bottom bar) |
 | `Enter` while editing | commit and start the next item |
 | `Tab` / `Shift+Tab` while editing | nest / un-nest the item (and its subtree) |
 | click a row, `↑` / `↓` | select a todo; `Enter` edits, `Space` toggles, `⌫` deletes it and its subtree |

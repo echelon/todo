@@ -29,7 +29,8 @@
       </div>
       <span id="count" class="count"></span>
       <span class="spacer"></span>
-      <button id="badge-btn" class="icon-btn badge-btn" title="Progress on tabs: off / 3/5 / % / remaining">off</button>
+      <button id="badge-btn" class="icon-btn badge-btn" title="Progress next to tab titles">off</button>
+      <button id="mirror-btn" class="icon-btn" title="Jump to the other side of the screen"></button>
       <button id="pin-btn" class="icon-btn" title="Always on top"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 3h6l-1 7 3 3H7l3-3z"/></svg></button>
       <button id="hide-btn" class="icon-btn" title="Hide to tray (Esc)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M5 12h14"/></svg></button>
     </footer>
@@ -47,6 +48,8 @@
       <div class="row"><label>Dark scheme</label><select id="s-dark"></select></div>
       <div class="row"><label>Opacity</label><input id="s-opacity" type="range" min="0.05" max="1" step="0.01" /></div>
       <div class="row"><label>Font size</label><input id="s-font" type="number" min="8" max="40" step="1" /></div>
+      <div class="row"><label>Fade when not focused</label><input id="s-fade" type="checkbox" /></div>
+      <div class="row"><label>Faded opacity</label><input id="s-fade-opacity" type="range" min="0.05" max="1" step="0.01" /></div>
       <div class="row"><label>Always on top</label><input id="s-top" type="checkbox" /></div>
       <div class="row"><label>Close hides to tray</label><input id="s-close" type="checkbox" /></div>
       <div class="row"><label>Show on every desktop</label><input id="s-spaces" type="checkbox" /></div>

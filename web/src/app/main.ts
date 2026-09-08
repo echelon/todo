@@ -7,9 +7,10 @@ import { fillSchemes, syncSettingsUI } from './settings.ts';
 import { applySnapshot } from './snapshot.ts';
 import { el, S } from './state.ts';
 import { invoke, listen, reportError } from './tauri.ts';
-import { applyTheme } from './theme.ts';
-import type { ConfigPayload, Snapshot } from './types.ts';
+import { applyTheme, setFocused } from './theme.ts';
+import type { ConfigPayload, Side, Snapshot } from './types.ts';
 import { closeCtx, toast } from './ui.ts';
+import { initSide, setSide } from './window.ts';
 
 window.addEventListener('error', (e) => reportError(`${e.message} @ ${e.filename}:${e.lineno}`));
 window.addEventListener('unhandledrejection', (e) => reportError(`unhandled: ${String(e.reason)}`));
@@ -34,6 +35,7 @@ function reset(cfg: ConfigPayload, snap: Snapshot, active: string | null): void 
   el.settingsBtn.classList.remove('active');
   S.editing = null; S.selected = null; S.clip = null; S.clipText = '';
   S.pendingSnap = null; S.mdDirty = false; S.dragging = false; S.suppressClick = false;
+  S.focused = true; S.hovered = false;
   clearTimeout(S.mdTimer);
   S.cfg = cfg;
   applyTheme();
@@ -61,6 +63,9 @@ async function init(): Promise<void> {
     await listen<Snapshot>('todo:snapshot', (p) => applySnapshot(p));
     await listen<ConfigPayload>('todo:config', (p) => { S.cfg = p; applyTheme(); syncSettingsUI(); });
     await listen<string>('todo:error', (p) => toast(p));
+    await listen<boolean>('todo:focus', (focused) => setFocused(focused));
+    await listen<Side>('todo:moved', (side) => setSide(side));
+    await initSide();
   } catch (e) {
     toast(e);
   }

@@ -123,6 +123,10 @@ impl Default for EditorConfig {
 pub struct WindowConfig {
     /// Background opacity, 0.0 (fully transparent) … 1.0 (opaque).
     pub opacity: f32,
+    /// Use `inactive_opacity` while the window is neither focused nor hovered.
+    pub inactive_opacity_enabled: bool,
+    /// Opacity while unfocused and not hovered (only when enabled).
+    pub inactive_opacity: f32,
     /// Float above every other window.
     pub always_on_top: bool,
     pub width: f64,
@@ -178,6 +182,8 @@ impl Default for WindowConfig {
     fn default() -> Self {
         Self {
             opacity: 0.92,
+            inactive_opacity_enabled: false,
+            inactive_opacity: 0.5,
             always_on_top: false,
             width: 380.0,
             height: 540.0,
@@ -236,6 +242,7 @@ impl Config {
 
     fn normalize(&mut self) {
         self.window.opacity = self.window.opacity.clamp(0.05, 1.0);
+        self.window.inactive_opacity = self.window.inactive_opacity.clamp(0.05, 1.0);
         self.font_size = self.font_size.clamp(8.0, 40.0);
         self.window.corner_radius = self.window.corner_radius.clamp(0.0, 40.0);
         self.window.width = self.window.width.max(200.0);
@@ -357,6 +364,12 @@ mod tests {
         assert_eq!(cfg.window.corner_radius, 0.0);
         assert_eq!(cfg.window.width, 200.0);
         assert_eq!(cfg.window.height, 150.0);
+        let w = Config::parse("[window]\ninactive_opacity = 3\ninactive_opacity_enabled = true\n")
+            .unwrap()
+            .window;
+        assert_eq!(w.inactive_opacity, 1.0);
+        assert!(w.inactive_opacity_enabled);
+        assert!(!Config::default().window.inactive_opacity_enabled);
         assert_eq!(
             Config::parse("[window]\nopacity = 0\n")
                 .unwrap()

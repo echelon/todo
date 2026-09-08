@@ -19,6 +19,7 @@ kbd { font-family: var(--mono); background: var(--surface); border: 1px solid va
 .app {
   position: absolute; inset: 0; display: flex; flex-direction: column;
   background: rgba(var(--bg-rgb), var(--opacity));
+  transition: background-color .25s ease;
   border-radius: var(--radius); overflow: hidden;
   box-shadow: inset 0 0 0 1px var(--border);
 }
@@ -40,7 +41,9 @@ kbd { font-family: var(--mono); background: var(--surface); border: 1px solid va
 .tabs.wrap { flex-wrap: wrap; overflow: visible; }
 .tab .badge { margin-left: 6px; font-size: .82em; font-weight: 400; color: var(--muted); font-variant-numeric: tabular-nums; }
 .tab.active .badge { color: var(--accent); }
-.badge-btn { width: auto; padding: 0 6px; font-size: .78em; font-family: var(--mono); letter-spacing: .02em; }
+.icon-btn.badge-btn { width: auto; padding: 0 7px 0 5px; gap: 4px; display: inline-flex; align-items: center; font-size: .78em; font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.icon-btn.badge-btn .ring { width: 13px; height: 13px; flex-shrink: 0; }
+.icon-btn.badge-btn.placeholder .sample { opacity: .55; }
 .tab[data-color] { padding-left: 20px; position: relative; }
 .tab[data-color]::before {
   content: ''; position: absolute; left: 8px; top: 50%; width: 7px; height: 7px; border-radius: 50%;
@@ -152,6 +155,7 @@ body.is-dragging, body.is-dragging * { cursor: grabbing !important; }
 }
 .row input[type=number] { width: 60px; }
 .row input[type=range] { width: 120px; accent-color: var(--accent); }
+.row input[type=range]:disabled { opacity: .4; }
 input[type=checkbox] { accent-color: var(--accent); width: 15px; height: 15px; margin: 0; }
 .actions { display: flex; gap: 6px; justify-content: flex-end; margin-top: 10px; }
 .actions button {

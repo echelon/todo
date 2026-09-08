@@ -197,3 +197,9 @@ export function hexToRgb(h: string): string {
   const n = parseInt(h.slice(1), 16);
   return `${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}`;
 }
+
+/** The background opacity to use right now: the inactive one only when enabled and the window is neither focused nor hovered. */
+export function effectiveOpacity(w: { opacity: number; inactive_opacity_enabled: boolean; inactive_opacity: number }, focused: boolean, hovered: boolean): number {
+  if (w.inactive_opacity_enabled && !focused && !hovered) return w.inactive_opacity;
+  return w.opacity;
+}

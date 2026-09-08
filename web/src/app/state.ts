@@ -1,5 +1,5 @@
 /** Mutable UI state and typed handles to the static DOM. */
-import type { BadgeMode, Block, ConfigPayload, Snapshot, TodoFile, View } from './types.ts';
+import type { BadgeMode, Block, ConfigPayload, Side, Snapshot, TodoFile, View } from './types.ts';
 import { BADGE_MODES } from './model.ts';
 
 export interface EditingState {
@@ -23,12 +23,18 @@ export const S = {
   mdTimer: undefined as ReturnType<typeof setTimeout> | undefined,
   mdDirty: false,
   opacityTimer: undefined as ReturnType<typeof setTimeout> | undefined,
+  fadeTimer: undefined as ReturnType<typeof setTimeout> | undefined,
   /** Index of the selected task row (rendered view). */
   selected: null as number | null,
   /** Internal clipboard: blocks plus the markdown we put on the system clipboard. */
   clip: null as Block[] | null,
   clipText: '',
   modalResolve: null as ((v: boolean) => void) | null,
+  /** Window focus (from Tauri's Focused event) and pointer-over state, for the inactive fade. */
+  focused: true,
+  hovered: false,
+  /** Which half of the monitor the window is on (null until the backend tells us). */
+  side: null as Side | null,
 };
 
 export const file = (): TodoFile | undefined => S.snap?.files.find((f) => f.name === S.active);
@@ -50,6 +56,7 @@ export const el = {
   viewSeg: $('#view-seg'),
   badgeBtn: $('#badge-btn'),
   pin: $('#pin-btn'),
+  mirror: $('#mirror-btn'),
   hide: $('#hide-btn'),
   settingsBtn: $('#settings-btn'),
   settings: $('#settings'),
@@ -64,6 +71,8 @@ export const el = {
   sDark: $<HTMLSelectElement>('#s-dark'),
   sOpacity: $<HTMLInputElement>('#s-opacity'),
   sFont: $<HTMLInputElement>('#s-font'),
+  sFade: $<HTMLInputElement>('#s-fade'),
+  sFadeOpacity: $<HTMLInputElement>('#s-fade-opacity'),
   sTop: $<HTMLInputElement>('#s-top'),
   sClose: $<HTMLInputElement>('#s-close'),
   sSpaces: $<HTMLInputElement>('#s-spaces'),

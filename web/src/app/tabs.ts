@@ -1,7 +1,7 @@
 /** The tab strip: rendering, badges, switching, reordering, renaming, colors. */
 import { commitEdit } from './edit.ts';
 import { flushMd } from './editor.ts';
-import { badgeText, TAB_COLORS } from './model.ts';
+import { BADGE_MODES, badgeText, TAB_COLORS, taskCounts } from './model.ts';
 import { applySnapshot, refreshView } from './snapshot.ts';
 import { badgeMode, el, file, S, suppressClicks, targetEl } from './state.ts';
 import { invoke } from './tauri.ts';
@@ -26,6 +26,7 @@ export function renderTabs(): void {
 
 /** Refresh just the active tab's badge (cheap; used after toggles). */
 export function updateActiveBadge(): void {
+  renderBadgeButton();
   if (badgeMode() === 'none') return;
   const f = file();
   const tab = f && tabFor(f.name);
@@ -34,6 +35,31 @@ export function updateActiveBadge(): void {
   let sp = tab.querySelector('.badge');
   if (text && !sp) { sp = document.createElement('span'); sp.className = 'badge'; tab.append(sp); }
   if (sp) { if (text) sp.textContent = text; else sp.remove(); }
+}
+
+/**
+ * The bottom-bar toggle shows a progress ring for the active list plus a live
+ * preview of the badge in the current format ("1/6", "17%", "(5)") or "off".
+ * Clicking cycles the format for every tab.
+ */
+export function renderBadgeButton(): void {
+  const mode = badgeMode();
+  const f = file();
+  const { total, done } = f ? taskCounts(f.blocks) : { total: 0, done: 0 };
+  const frac = total ? done / total : 0;
+  const r = 5.5, c = 2 * Math.PI * r;
+  const ring = `<svg class="ring" viewBox="0 0 16 16" aria-hidden="true">
+    <circle cx="8" cy="8" r="${r}" fill="none" stroke="currentColor" stroke-opacity=".25" stroke-width="2"/>
+    <circle cx="8" cy="8" r="${r}" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"
+      stroke-dasharray="${c.toFixed(2)}" stroke-dashoffset="${(c * (1 - frac)).toFixed(2)}" transform="rotate(-90 8 8)"/>
+  </svg>`;
+  const sample = mode === 'none' ? 'off' : (f && total ? badgeText(f.blocks, mode) : { ratio: '3/5', percent: '60%', remaining: '(2)' }[mode]);
+  el.badgeBtn.innerHTML = ring + `<span class="sample">${sample}</span>`;
+  el.badgeBtn.classList.toggle('active', mode !== 'none');
+  el.badgeBtn.classList.toggle('placeholder', mode !== 'none' && !(f && total));
+  const next = BADGE_MODES[(BADGE_MODES.indexOf(mode) + 1) % BADGE_MODES.length];
+  const names = { none: 'off', ratio: 'completed/total', percent: 'percent done', remaining: '(remaining)' };
+  el.badgeBtn.title = `Progress next to tab titles: ${names[mode]}. Click for ${names[next]}.`;
 }
 
 export const tabFor = (name: string): HTMLElement | null => el.tabs.querySelector<HTMLElement>(`.tab[data-name="${CSS.escape(name)}"]`);
@@ -47,6 +73,7 @@ export function setActive(name: string | null): void {
   localStorage.setItem('active', name ?? '');
   renderTabs();
   refreshView();
+  renderBadgeButton();
 }
 
 el.tabs.addEventListener('click', (e) => {

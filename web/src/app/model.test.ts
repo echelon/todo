@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   appendIndex, badgeText, blockFromTyped, blocksToMarkdown, clampDropLevel, collapseBlanks, countText, headingFromText,
-  hexToRgb, insertBlocks, isRuleText, levelOf, nextBadgeMode, nextTaskIndex, parseTaskLines, pasteTarget,
+  effectiveOpacity, hexToRgb, insertBlocks, isRuleText, levelOf, nextBadgeMode, nextTaskIndex, parseTaskLines, pasteTarget,
   prevTaskLevel, removeSubtree, setLevel, shiftLevels, subtreeBlocks, subtreeEnd, taskCounts,
 } from './model.ts';
 import type { Block } from './types.ts';
@@ -148,4 +148,12 @@ test('nextTaskIndex navigation', () => {
 test('collapseBlanks and hexToRgb', () => {
   assert.deepEqual(collapseBlanks([blank, blank, t('a'), blank, blank, blank, t('b')]).length, 4);
   assert.equal(hexToRgb('#0b1220'), '11, 18, 32');
+});
+
+test('effectiveOpacity fades only when enabled, unfocused and unhovered', () => {
+  const w = { opacity: 0.9, inactive_opacity_enabled: true, inactive_opacity: 0.4 };
+  assert.equal(effectiveOpacity(w, false, false), 0.4);
+  assert.equal(effectiveOpacity(w, true, false), 0.9);
+  assert.equal(effectiveOpacity(w, false, true), 0.9);
+  assert.equal(effectiveOpacity({ ...w, inactive_opacity_enabled: false }, false, false), 0.9);
 });

@@ -20,6 +20,10 @@ const MAIN: &str = "main";
 const EV_SNAPSHOT: &str = "todo:snapshot";
 const EV_CONFIG: &str = "todo:config";
 const EV_ERROR: &str = "todo:error";
+/// Emitted with `true`/`false` when the window gains/loses focus.
+const EV_FOCUS: &str = "todo:focus";
+/// Emitted with the window's [`Side`] after it moves.
+const EV_MOVED: &str = "todo:moved";
 /// Fallback poll interval when the OS watcher misses events (network drives…).
 const POLL_INTERVAL: Duration = Duration::from_millis(1000);
 /// Coalesce bursts of filesystem events (editors write several times).
@@ -67,6 +71,8 @@ pub struct SettingsPatch {
     light_scheme: Option<ColorScheme>,
     dark_scheme: Option<ColorScheme>,
     opacity: Option<f32>,
+    inactive_opacity_enabled: Option<bool>,
+    inactive_opacity: Option<f32>,
     always_on_top: Option<bool>,
     font_size: Option<f32>,
     close_to_tray: Option<bool>,
@@ -195,6 +201,15 @@ fn patch_values(patch: &SettingsPatch) -> Vec<(&'static str, toml_edit::Value)> 
     if let Some(v) = patch.opacity {
         values.push(("window.opacity", Value::from(v.clamp(0.05, 1.0) as f64)));
     }
+    if let Some(v) = patch.inactive_opacity_enabled {
+        values.push(("window.inactive_opacity_enabled", Value::from(v)));
+    }
+    if let Some(v) = patch.inactive_opacity {
+        values.push((
+            "window.inactive_opacity",
+            Value::from(v.clamp(0.05, 1.0) as f64),
+        ));
+    }
     if let Some(v) = patch.always_on_top {
         values.push(("window.always_on_top", Value::from(v)));
     }
@@ -225,6 +240,64 @@ fn update_settings(app: AppHandle, patch: SettingsPatch) -> Result<ConfigPayload
     let path = Config::path().map_err(err)?;
     Config::write_values(&path, &values).map_err(err)?;
     reload_config(&app).map_err(err)
+}
+
+/// Which half of the monitor the window sits on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Side {
+    Left,
+    Right,
+}
+
+/// The x that puts a window of width `w` at the same distance from the
+/// monitor's right edge as `x` is from its left edge (all physical pixels).
+fn mirror_x(monitor_x: i32, monitor_w: u32, x: i32, w: u32) -> i32 {
+    let left_gap = x - monitor_x;
+    monitor_x + monitor_w as i32 - left_gap - w as i32
+}
+
+fn side_of(monitor_x: i32, monitor_w: u32, x: i32, w: u32) -> Side {
+    let center = x as f64 + w as f64 / 2.0;
+    if center < monitor_x as f64 + monitor_w as f64 / 2.0 {
+        Side::Left
+    } else {
+        Side::Right
+    }
+}
+
+fn window_geometry(w: &WebviewWindow) -> Option<(i32, u32, i32, u32, i32)> {
+    let monitor = w.current_monitor().ok().flatten()?;
+    let pos = w.outer_position().ok()?;
+    let size = w.outer_size().ok()?;
+    Some((
+        monitor.position().x,
+        monitor.size().width,
+        pos.x,
+        size.width,
+        pos.y,
+    ))
+}
+
+fn current_side(w: &WebviewWindow) -> Option<Side> {
+    let (mx, mw, x, width, _) = window_geometry(w)?;
+    Some(side_of(mx, mw, x, width))
+}
+
+#[tauri::command]
+fn get_window_side(app: AppHandle) -> Option<Side> {
+    app.get_webview_window(MAIN).and_then(|w| current_side(&w))
+}
+
+/// Jump to the mirrored spot on the other side of the current monitor.
+#[tauri::command]
+fn mirror_window(app: AppHandle) -> Result<Side, String> {
+    let w = app.get_webview_window(MAIN).ok_or("no window")?;
+    let (mx, mw, x, width, y) = window_geometry(&w).ok_or("no monitor")?;
+    let nx = mirror_x(mx, mw, x, width);
+    w.set_position(tauri::PhysicalPosition::new(nx, y))
+        .map_err(err)?;
+    Ok(side_of(mx, mw, nx, width))
 }
 
 /// Called by the frontend once the theme has been painted, so the window
@@ -560,6 +633,8 @@ pub fn run() {
             update_settings,
             window_ready,
             hide_window,
+            get_window_side,
+            mirror_window,
             open_config,
             open_todo_dir,
             log,
@@ -582,8 +657,8 @@ pub fn run() {
             spawn_watcher(app.handle().clone());
             Ok(())
         })
-        .on_window_event(|window, event| {
-            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+        .on_window_event(|window, event| match event {
+            tauri::WindowEvent::CloseRequested { api, .. } => {
                 let close_to_tray = window
                     .state::<AppState>()
                     .config
@@ -596,6 +671,19 @@ pub fn run() {
                     let _ = window.hide();
                 }
             }
+            tauri::WindowEvent::Focused(focused) => {
+                let _ = window.emit(EV_FOCUS, *focused);
+            }
+            tauri::WindowEvent::Moved(_) => {
+                if let Some(side) = window
+                    .app_handle()
+                    .get_webview_window(MAIN)
+                    .and_then(|w| current_side(&w))
+                {
+                    let _ = window.emit(EV_MOVED, side);
+                }
+            }
+            _ => {}
         })
         .run(tauri::generate_context!())
         .expect("error while running Todo");
@@ -610,6 +698,29 @@ mod tests {
     }
 
     #[test]
+    fn mirror_keeps_the_edge_gap_and_flips_side() {
+        // 1920-wide monitor at x=0, 380-wide window 25px from the left edge.
+        assert_eq!(mirror_x(0, 1920, 25, 380), 1920 - 25 - 380);
+        assert_eq!(
+            mirror_x(0, 1920, mirror_x(0, 1920, 25, 380), 380),
+            25,
+            "mirroring twice returns"
+        );
+        // Secondary monitor to the right of the primary (x offset), 33px from its left edge.
+        assert_eq!(mirror_x(2560, 1440, 2560 + 33, 300), 2560 + 1440 - 33 - 300);
+        // A window hanging off the left edge mirrors to hang off the right edge.
+        assert_eq!(mirror_x(0, 1000, -50, 200), 850);
+        assert_eq!(side_of(0, 1920, 25, 380), Side::Left);
+        assert_eq!(side_of(0, 1920, 1515, 380), Side::Right);
+        assert_eq!(
+            side_of(0, 1920, 770, 380),
+            Side::Right,
+            "centered counts as right"
+        );
+        assert_eq!(side_of(2560, 1440, 2560 + 33, 300), Side::Left);
+    }
+
+    #[test]
     fn empty_patch_writes_nothing() {
         assert!(patch_values(&SettingsPatch::default()).is_empty());
     }
@@ -618,6 +729,7 @@ mod tests {
     fn patch_maps_every_field_to_its_config_key() {
         let p: SettingsPatch = serde_json::from_str(
             r#"{"appearance":"dark","light_scheme":"sepia","dark_scheme":"molokai_dark","opacity":0.5,
+                "inactive_opacity_enabled":true,"inactive_opacity":0.3,
                 "always_on_top":true,"font_size":16,"close_to_tray":false,"visible_on_all_workspaces":false,
                 "vim":false,"tab_overflow":"wrap","tab_badge":"remaining"}"#,
         )
@@ -629,6 +741,8 @@ mod tests {
                 "light_scheme",
                 "dark_scheme",
                 "window.opacity",
+                "window.inactive_opacity_enabled",
+                "window.inactive_opacity",
                 "window.always_on_top",
                 "font_size",
                 "tray.close_to_tray",
@@ -641,8 +755,10 @@ mod tests {
         let vals = patch_values(&p);
         assert_eq!(vals[0].1.as_str(), Some("dark"));
         assert_eq!(vals[2].1.as_str(), Some("molokai_dark"));
-        assert_eq!(vals[9].1.as_str(), Some("wrap"));
-        assert_eq!(vals[10].1.as_str(), Some("remaining"));
+        assert_eq!(vals[4].1.as_bool(), Some(true));
+        assert!((vals[5].1.as_float().unwrap() - 0.3).abs() < 1e-6);
+        assert_eq!(vals[11].1.as_str(), Some("wrap"));
+        assert_eq!(vals[12].1.as_str(), Some("remaining"));
     }
 
     #[test]
