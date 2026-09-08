@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Todo</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="app" class="app">
+    <header class="bar top">
+      <nav id="tabs" class="tabs"></nav>
+      <button id="new-tab" class="icon-btn" title="New list (⌘⇧N)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>
+      <span class="spacer"></span>
+      <button id="settings-btn" class="icon-btn" title="Settings (⌘,)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
+    </header>
+
+    <main id="main" class="main">
+      <div id="list" class="list"></div>
+      <textarea id="md" class="md" spellcheck="false" hidden></textarea>
+      <div id="md-host" class="md-host" hidden></div>
+      <div id="empty" class="empty" hidden>No lists yet. Press <kbd>+</kbd> to create one.</div>
+    </main>
+
+    <footer class="bar bottom">
+      <div class="seg" id="view-seg">
+        <button data-view="rendered" class="active" title="Rendered view (⌘E)">List</button>
+        <button data-view="markdown" title="Markdown view (⌘E)">Markdown</button>
+      </div>
+      <span id="count" class="count"></span>
+      <span class="spacer"></span>
+      <button id="pin-btn" class="icon-btn" title="Always on top"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M9 3h6l-1 7 3 3H7l3-3z"/></svg></button>
+      <button id="hide-btn" class="icon-btn" title="Hide to tray (Esc)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M5 12h14"/></svg></button>
+    </footer>
+
+    <div id="settings" class="popover" hidden>
+      <div class="row">
+        <label>Appearance</label>
+        <select id="s-appearance">
+          <option value="follow_os">Follow OS</option>
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+        </select>
+      </div>
+      <div class="row"><label>Light scheme</label><select id="s-light"></select></div>
+      <div class="row"><label>Dark scheme</label><select id="s-dark"></select></div>
+      <div class="row"><label>Opacity</label><input id="s-opacity" type="range" min="0.05" max="1" step="0.01" /></div>
+      <div class="row"><label>Font size</label><input id="s-font" type="number" min="8" max="40" step="1" /></div>
+      <div class="row"><label>Always on top</label><input id="s-top" type="checkbox" /></div>
+      <div class="row"><label>Close hides to tray</label><input id="s-close" type="checkbox" /></div>
+      <div class="row"><label>Show on every desktop</label><input id="s-spaces" type="checkbox" /></div>
+      <div class="row"><label>Vim keys in markdown</label><input id="s-vim" type="checkbox" /></div>
+      <div class="row actions">
+        <button id="s-open-config">Edit config</button>
+        <button id="s-open-dir">Open folder</button>
+        <button id="s-quit" class="danger">Quit</button>
+      </div>
+      <div class="hint" id="s-hint"></div>
+    </div>
+
+    <div id="modal" class="modal" hidden>
+      <div class="dialog">
+        <p id="modal-msg"></p>
+        <div class="actions">
+          <button id="modal-cancel">Cancel</button>
+          <button id="modal-ok" class="danger">Delete</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="toast" class="toast" hidden></div>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>

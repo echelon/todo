@@ -1,0 +1,233 @@
+<!doctype html>
+<!-- Dev harness: runs ui/ in a normal browser with a mocked Tauri backend.
+     Serve the repo root (e.g. `python3 -m http.server 8765`) and open
+     http://localhost:8765/tools/harness/harness.html -->
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Todo harness</title>
+  <link rel="stylesheet" href="../../ui/style.css" />
+  <style>
+    html, body { background: #4a6a8a url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"><rect width="20" height="20" fill="%23557799"/><rect x="20" y="20" width="20" height="20" fill="%23557799"/></svg>'); }
+    .app { position: absolute; left: 40px; top: 40px; width: 380px; height: 540px; inset: auto; }
+  </style>
+  <script>
+    // ---- mock backend -------------------------------------------------
+    const schemes = {
+      midnight_blue: ['#0b1220','#141d31','#dbe4f3','#7f8fae','#5b9dff','#04101f','#22304c','#ff6b6b', true],
+      white:         ['#ffffff','#f4f4f5','#18181b','#71717a','#2563eb','#ffffff','#e4e4e7','#dc2626', false],
+      forest_mist:   ['#0f1a14','#182419','#d9e5dc','#7f9a88','#6fcf97','#06120b','#243428','#f08080', true],
+      rose_pine_dawn:['#faf4ed','#fffaf3','#575279','#9893a5','#d7827e','#faf4ed','#efe6dd','#b4637a', false],
+    };
+    const pal = (id) => { const c = schemes[id] || schemes.midnight_blue; return { scheme: id, is_dark: c[8], bg: c[0], surface: c[1], fg: c[2], muted: c[3], accent: c[4], accent_fg: c[5], border: c[6], danger: c[7] }; };
+    const config = {
+      todo_dir: '~/todos', dark_scheme: 'midnight_blue', light_scheme: 'white', appearance: 'dark', font_size: 14,
+      font_family: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif",
+      window: { opacity: 0.92, always_on_top: false, width: 380, height: 540, corner_radius: 12, start_hidden: false },
+      tray: { close_to_tray: true, hide_dock_icon: true, skip_taskbar: true, visible_on_all_workspaces: true },
+      shortcuts: { toggle_window: 'CmdOrCtrl+Shift+Space' },
+      editor: { vim: true },
+    };
+    const files = {
+      'Todo': '# Todo\n\n- [ ] Drag me around\n- [ ] Click a checkbox\n- [ ] Click text to edit, press Enter for a new item\n- [ ] Switch to Markdown view (⌘/Ctrl+E) and edit the raw file\n- [x] Install the app\n\n## Later\n\nSome note text here.\n- [ ] Nested parent\n  - [ ] Nested child\n',
+      'Work': '# Work\n\n- [ ] Ship the todo app\n- [x] Write the core crate\n- [ ] Parent\n  - [ ] Child A\n  - [ ] Child B\n\n---\n\n- [ ] Below the rule\n',
+    };
+    function parse(raw) {
+      const lines = raw.split('\n'); if (raw.endsWith('\n')) lines.pop();
+      return lines.map((l) => {
+        if (!l.trim()) return { kind: 'blank' };
+        let m = /^(#{1,6})\s+(.*)$/.exec(l); if (m) return { kind: 'heading', level: m[1].length, text: m[2].trim() };
+        m = /^(\s*)[-*+]\s+\[( |x|X)\](?:\s+(.*)|$)/.exec(l); if (m) return { kind: 'task', indent: m[1], done: m[2] !== ' ', text: (m[3] || '').trim() };
+        if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(l)) return { kind: 'rule', text: l };
+        return { kind: 'text', text: l };
+      });
+    }
+    function ser(blocks) {
+      return blocks.map((b) => b.kind === 'heading' ? '#'.repeat(b.level) + ' ' + b.text
+        : b.kind === 'task' ? b.indent + (b.done ? '- [x]' : '- [ ]') + (b.text ? ' ' + b.text : '')
+        : b.kind === 'text' || b.kind === 'rule' ? b.text : '').map((l) => l + '\n').join('');
+    }
+    const snapshot = () => ({ dir: '/mock/todos', files: Object.keys(files).sort((a, b) => a.localeCompare(b)).map((name) => ({ name, raw: files[name], blocks: parse(files[name]) })) });
+    const cfgPayload = () => ({ config, light: pal(config.light_scheme), dark: pal(config.dark_scheme), config_path: '/mock/.todo_config.toml', platform: 'mock',
+      schemes: Object.keys(schemes).map((id) => ({ id, label: id, is_dark: schemes[id][8] })) });
+    const listeners = {};
+    window.__mock = { files, config, emit: (n, p) => (listeners[n] || []).forEach((f) => f({ payload: p })), snapshot };
+    const commands = {
+      get_config: () => cfgPayload(),
+      get_snapshot: () => snapshot(),
+      save_blocks: ({ name, blocks }) => { files[name] = ser(blocks); console.log('[save_blocks]', name, JSON.stringify(files[name])); return files[name]; },
+      save_raw: ({ name, raw }) => { files[name] = raw; console.log('[save_raw]', name, JSON.stringify(raw)); return parse(raw); },
+      create_file: ({ name }) => { name = name.replace(/\.md$/, ''); if (files[name]) throw 'file already exists: ' + name; files[name] = `# ${name}\n\n`; return { name, snapshot: snapshot() }; },
+      delete_file: ({ name }) => { delete files[name]; return snapshot(); },
+      update_settings: ({ patch }) => {
+        for (const [k, v] of Object.entries(patch)) {
+          if (k === 'opacity' || k === 'always_on_top') config.window[k] = v;
+          else if (k === 'vim') config.editor.vim = v;
+          else if (k === 'close_to_tray' || k === 'visible_on_all_workspaces') config.tray[k] = v;
+          else config[k] = v;
+        }
+        console.log('[update_settings]', JSON.stringify(patch)); return cfgPayload();
+      },
+      window_ready: () => console.log('[window_ready]'), hide_window: () => console.log('[hide_window]'),
+      open_config: () => {}, open_todo_dir: () => {}, log: ({ msg }) => console.log('[ui]', msg), quit: () => console.log('[quit]'),
+    };
+    window.__TAURI__ = {
+      core: { invoke: async (cmd, args) => { if (!commands[cmd]) throw 'unknown command ' + cmd; return commands[cmd](args || {}); } },
+      event: { listen: async (n, f) => { (listeners[n] ||= []).push(f); return () => {}; } },
+      window: { getCurrentWindow: () => ({ startDragging: () => console.log('[startDragging]') }) },
+    };
+  </script>
+</head>
+<body>
+  <div id="app-root"></div>
+  <script>
+    // Pull the markup out of ui/index.html so the harness never drifts from it.
+    fetch('../../ui/index.html').then((r) => r.text()).then((html) => {
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      document.getElementById('app-root').replaceWith(doc.getElementById('app'));
+      const s = document.createElement('script'); s.src = '../../ui/app.js'; document.body.append(s);
+      if (location.search.includes('autotest')) s.onload = () => setTimeout(autotest, 50);
+    });
+
+    // ---- scripted interaction test (open with ?autotest) --------------
+    const out = [];
+    const log = (...a) => { out.push(a.join(' ')); };
+    const check = (name, cond) => log((cond ? 'PASS' : 'FAIL') + ' ' + name);
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const q = (s) => document.querySelector(s);
+    const qa = (s) => [...document.querySelectorAll(s)];
+    const texts = () => qa('#list .task .text').map((t) => t.textContent.trim());
+    function ptr(type, target, x, y, extra = {}) {
+      target.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y, button: 0, pointerId: 1, isPrimary: true, ...extra }));
+    }
+    async function dragRow(fromIdx, toY) {
+      const rows = qa('#list .task');
+      const row = rows[fromIdx]; const r = row.getBoundingClientRect();
+      const x = r.left + r.width / 2, y = r.top + r.height / 2;
+      ptr('pointerdown', row.querySelector('.text'), x, y);
+      ptr('pointermove', window, x, y + 8); await sleep(10);
+      for (let i = 1; i <= 6; i++) { ptr('pointermove', window, x, y + (toY - y) * i / 6); await sleep(5); }
+      check('ghost exists during drag', !!q('.ghost'));
+      ptr('pointerup', window, x, toY);
+      await sleep(20);
+    }
+    async function autotest() {
+      try {
+        const F = window.__mock.files;
+        check('tabs rendered', qa('.tab').length === 2 && q('.tab.active').textContent === 'Todo');
+        check('hidden elements hidden', getComputedStyle(q('#modal')).display === 'none' && getComputedStyle(q('#empty')).display === 'none');
+        check('7 tasks rendered', qa('#list .task').length === 7);
+        check('nested indent', qa('#list .task')[6].style.marginLeft === '18px');
+
+        // toggle
+        qa('#list .task .check')[0].click(); await sleep(10);
+        check('toggle writes [x]', F.Todo.includes('- [x] Drag me around'));
+        check('count updated', q('#count').textContent === '5 left');
+        qa('#list .task .check')[0].click(); await sleep(10);
+        check('toggle back', F.Todo.includes('- [ ] Drag me around'));
+
+        // edit + enter creates new item
+        qa('#list .task .text')[1].click(); await sleep(10);
+        const inp = q('#list .edit');
+        check('edit input shown', !!inp && inp.value === 'Click a checkbox');
+        inp.value = 'Click a checkbox!';
+        inp.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); await sleep(10);
+        check('edit saved', F.Todo.includes('- [ ] Click a checkbox!'));
+        const inp2 = q('#list .edit');
+        check('new item editing', !!inp2 && inp2.value === '');
+        inp2.value = 'Brand new';
+        inp2.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); await sleep(10);
+        check('new item saved after previous', /Click a checkbox!\n- \[ \] Brand new\n/.test(F.Todo));
+        const inp3 = q('#list .edit');
+        inp3.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await sleep(10);
+        check('escape removes empty new item', !q('#list .edit') && qa('#list .task').length === 8);
+
+        // add via bottom input
+        const add = q('#list .add'); add.value = 'From add box';
+        add.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); await sleep(10);
+        check('add appends before trailing blank', F.Todo.endsWith('  - [ ] Nested child\n- [ ] From add box\n'));
+        check('add input refocused', document.activeElement === q('#list .add'));
+
+        // drag: move first task to the end of first section (before "## Later")
+        const before = texts();
+        const laterHeading = qa('#list .heading')[1].getBoundingClientRect();
+        await dragRow(0, laterHeading.top + 2);
+        const after = texts();
+        check('drag reorders', after[0] === before[1] && after[5] === before[0]);
+        check('drag serialised inside section', /- \[x\] Install the app\n- \[ \] Drag me around\n\n## Later/.test(F.Todo));
+        check('ghost removed', !q('.ghost'));
+
+        // delete asks
+        qa('#list .task .del')[0].click(); await sleep(10);
+        check('modal shown', getComputedStyle(q('#modal')).display !== 'none');
+        q('#modal-cancel').click(); await sleep(10);
+        check('cancel keeps item', qa('#list .task').length === 9);
+        qa('#list .task .del')[0].click(); await sleep(10);
+        q('#modal-ok').click(); await sleep(10);
+        check('delete removes item', qa('#list .task').length === 8 && !F.Todo.includes('Click a checkbox!'));
+
+        // markdown view
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'e', metaKey: true, bubbles: true })); await sleep(400);
+        const ed = window.__todo.editor;
+        check('codemirror editor loaded', !!ed && !ed.isTextarea && !!q('.md-host .cm-editor') && !q('#md-host').hidden && q('#list').hidden);
+        check('editor shows file', ed.getValue() === F.Todo);
+        check('vim status panel', /NORMAL/.test(q('.cm-vim-panel')?.textContent || ''));
+        const content = q('.cm-content');
+        const vkey = (key) => content.dispatchEvent(new KeyboardEvent('keydown', { key, code: 'Key' + key.toUpperCase(), bubbles: true, cancelable: true }));
+        vkey('d'); vkey('d'); await sleep(300);
+        check('vim dd deletes first line', !F.Todo.startsWith('# Todo') && ed.getValue() === F.Todo);
+        vkey('u'); await sleep(300);
+        check('vim u undoes', F.Todo.startsWith('# Todo'));
+        vkey('i'); await sleep(10);
+        check('vim insert mode', ed.mode() === 'insert' && /INSERT/.test(q('.cm-vim-panel').textContent));
+        content.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })); await sleep(10);
+        check('escape back to normal', ed.mode() === 'normal');
+        ed.view.dispatch({ changes: { from: 0, to: ed.view.state.doc.length, insert: '# Todo\n\n- [ ] only one\n' } }); await sleep(300);
+        check('markdown saved', F.Todo === '# Todo\n\n- [ ] only one\n');
+        document.dispatchEvent(new KeyboardEvent('keydown', { key: 'e', metaKey: true, bubbles: true })); await sleep(10);
+        check('back to list, re-rendered', !q('#list').hidden && texts().join() === 'only one');
+
+        // external change event
+        window.__mock.files.Todo = '# Todo\n\n- [ ] external\n- [x] change\n';
+        window.__mock.emit('todo:snapshot', window.__mock.snapshot()); await sleep(10);
+        check('external snapshot applied', texts().join() === 'external,change');
+
+        // tabs
+        qa('.tab')[1].click(); await sleep(10);
+        check('switch tab', q('.tab.active').textContent === 'Work' && texts()[0] === 'Ship the todo app');
+        check('rule rendered', qa('#list .rule').length === 1);
+        check('nested rows indented', qa('#list .task')[3].style.marginLeft === '18px');
+        // drag "Parent" (with its two children) above "Ship the todo app"
+        await dragRow(2, qa('#list .task')[0].getBoundingClientRect().top + 2);
+        check('subtree moved together', texts().slice(0, 5).join('|') === 'Parent|Child A|Child B|Ship the todo app|Write the core crate');
+        check('subtree serialised', F.Work.startsWith('# Work\n\n- [ ] Parent\n  - [ ] Child A\n  - [ ] Child B\n- [ ] Ship the todo app\n'));
+        check('grab cursor', getComputedStyle(qa('#list .task')[0]).cursor === 'grab' && !document.body.classList.contains('is-dragging'));
+        // Tab while editing nests under the item above
+        qa('#list .task .text')[3].click(); await sleep(10);
+        q('#list .edit').dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true })); await sleep(10);
+        check('tab indents (max one deeper than above)', F.Work.includes('  - [ ] Child B\n    - [ ] Ship the todo app\n'));
+        q('#list .edit').dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true }));
+        q('#list .edit').dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true })); await sleep(10);
+        check('shift-tab outdents to root', F.Work.includes('  - [ ] Child B\n- [ ] Ship the todo app\n'));
+        q('#list .edit').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await sleep(10);
+        // drag a task below the rule: the rule stays a rule
+        await dragRow(4, qa('#list .task')[5].getBoundingClientRect().bottom + 2);
+        check('drag past rule', F.Work.endsWith('---\n\n- [ ] Below the rule\n- [ ] Write the core crate\n'));
+        q('#new-tab').click(); await sleep(10);
+        const ti = q('.tab-input'); ti.value = 'Home';
+        ti.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); await sleep(20);
+        check('new list created + active', q('.tab.active')?.textContent === 'Home' && !!F.Home);
+
+        // settings
+        q('#settings-btn').click(); await sleep(10);
+        check('settings open', !q('#settings').hidden);
+        q('#s-appearance').value = 'light'; q('#s-appearance').dispatchEvent(new Event('change')); await sleep(10);
+        check('light theme applied', getComputedStyle(document.documentElement).getPropertyValue('--bg').trim() === '#ffffff');
+        q('#pin-btn').click(); await sleep(10);
+        check('pin toggles', window.__mock.config.window.always_on_top === true && q('#pin-btn').classList.contains('active'));
+      } catch (e) { log('ERROR ' + e + '\n' + e.stack); }
+      const pre = document.createElement('pre'); pre.id = 'results'; pre.textContent = out.join('\n'); document.body.append(pre);
+    }
+  </script>
+</body>
+</html>

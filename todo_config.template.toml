@@ -1,0 +1,51 @@
+# ~/.todo_config.toml — configuration for the Todo app.
+# Every value is optional; anything omitted falls back to the default shown here.
+# The app watches this file and applies changes live.
+
+# Directory holding your todo lists. Every *.md file becomes a tab.
+todo_dir = "~/todos"
+
+# Which palette to use:
+#   "light"     – always light_scheme
+#   "dark"      – always dark_scheme
+#   "follow_os" – follow the OS appearance (which may switch by time of day)
+appearance = "follow_os"
+
+# Available schemes:
+#   black, white, forest_mist, midnight_blue, nord, dracula,
+#   gruvbox_dark, gruvbox_light, solarized_dark, solarized_light,
+#   catppuccin_mocha, rose_pine_dawn
+dark_scheme = "midnight_blue"
+light_scheme = "white"
+
+font_size = 14.0
+font_family = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif"
+
+[window]
+# Background opacity: 0.0 = fully transparent, 1.0 = solid.
+opacity = 0.92
+# Float above all other windows.
+always_on_top = false
+width = 380.0
+height = 540.0
+corner_radius = 12.0
+# Launch minimised to the tray.
+start_hidden = false
+
+[tray]
+# Closing the window hides it to the tray instead of quitting.
+close_to_tray = true
+# macOS: menu-bar-only app (no Dock icon). Requires restart.
+hide_dock_icon = true
+# Windows / Linux: keep the window out of the taskbar.
+skip_taskbar = true
+# Summon the window onto whichever desktop/space you are currently on.
+visible_on_all_workspaces = true
+
+[shortcuts]
+# Global hotkey to show/hide the window. Empty string disables it.
+toggle_window = "CmdOrCtrl+Shift+Space"
+
+[editor]
+# Vim keybindings in the markdown view. `:w` saves, `:q` returns to the list.
+vim = true

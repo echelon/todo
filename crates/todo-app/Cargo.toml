@@ -1,0 +1,22 @@
+[package]
+name = "todo-app"
+description = "A tiny, blazingly fast markdown-backed todo app that lives in your tray"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "todo_app_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+todo-core = { path = "../todo-core" }
+tauri = { version = "2", features = ["tray-icon", "image-png", "macos-private-api"] }
+tauri-plugin-global-shortcut = "2"
+serde.workspace = true
+serde_json.workspace = true
+toml_edit.workspace = true
+notify.workspace = true

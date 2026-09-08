@@ -1,0 +1,21 @@
+{
+  "name": "todo-editor-bundle",
+  "private": true,
+  "description": "Builds ui/vendor/editor.js (CodeMirror 6 + vim) — run once, commit the output; the app itself needs no Node.",
+  "scripts": {
+    "build": "esbuild src/index.js --bundle --minify --format=iife --global-name=TodoEditor --target=es2020 --outfile=../../ui/vendor/editor.js --legal-comments=none"
+  },
+  "dependencies": {
+    "@codemirror/commands": "^6.11.0",
+    "@codemirror/language": "^6.12.4",
+    "@codemirror/search": "^6.7.2",
+    "@codemirror/state": "^6.7.4",
+    "@codemirror/view": "^6.43.11",
+    "@lezer/highlight": "^1.2.3",
+    "@lezer/markdown": "^1.7.2",
+    "@replit/codemirror-vim": "^6.4.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  }
+}

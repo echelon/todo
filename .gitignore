@@ -1,2 +1,6 @@
 *~
 prompts/
+/target
+**/gen/schemas
+*.log
+.DS_Store
