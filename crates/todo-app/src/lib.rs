@@ -11,7 +11,7 @@ use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, LogicalSize, Manager, State, WebviewWindow, Wry};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
-use todo_core::{Appearance, Block, ColorScheme, Config, Palette, Snapshot, Store};
+use todo_core::{Appearance, Block, ColorScheme, Config, Palette, Snapshot, Store, TabOverflow};
 
 const MAIN: &str = "main";
 const EV_SNAPSHOT: &str = "todo:snapshot";
@@ -69,6 +69,7 @@ pub struct SettingsPatch {
     close_to_tray: Option<bool>,
     visible_on_all_workspaces: Option<bool>,
     vim: Option<bool>,
+    tab_overflow: Option<TabOverflow>,
 }
 
 fn payload(cfg: &Config) -> ConfigPayload {
@@ -157,6 +158,17 @@ fn set_tab_order(state: State<AppState>, names: Vec<String>) -> Result<Snapshot,
 }
 
 #[tauri::command]
+fn set_tab_color(
+    state: State<AppState>,
+    name: String,
+    color: Option<String>,
+) -> Result<Snapshot, String> {
+    let mut store = state.store.lock().unwrap();
+    store.set_color(&name, color.as_deref()).map_err(err)?;
+    Ok(store.snapshot())
+}
+
+#[tauri::command]
 fn delete_file(state: State<AppState>, name: String) -> Result<Snapshot, String> {
     let mut store = state.store.lock().unwrap();
     store.delete(&name).map_err(err)?;
@@ -193,6 +205,9 @@ fn update_settings(app: AppHandle, patch: SettingsPatch) -> Result<ConfigPayload
     }
     if let Some(v) = patch.vim {
         values.push(("editor.vim", Value::from(v)));
+    }
+    if let Some(v) = patch.tab_overflow {
+        values.push(("tabs.overflow", Value::from(v.id())));
     }
     let path = Config::path().map_err(err)?;
     Config::write_values(&path, &values).map_err(err)?;
@@ -529,6 +544,7 @@ pub fn run() {
             create_file,
             rename_file,
             set_tab_order,
+            set_tab_color,
             delete_file,
             update_settings,
             window_ready,

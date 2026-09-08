@@ -176,7 +176,21 @@ impl Document {
         Document { blocks }
     }
 
+    /// Build a document from UI blocks. A task whose text is only a rule
+    /// marker (`---`, `***`, `___`) becomes a horizontal rule, and one whose
+    /// text is `# Title` … `###### Title` becomes a heading, so typing those
+    /// as a todo produces the markdown construct rather than `- [ ] # Title`.
     pub fn from_blocks(blocks: Vec<Block>) -> Document {
+        let blocks = blocks
+            .into_iter()
+            .map(|b| match b {
+                Block::Task { text, .. } if is_rule(&text) => Block::Rule { text },
+                Block::Task { text, .. } if parse_heading(&text).is_some() => {
+                    parse_heading(&text).expect("checked above")
+                }
+                other => other,
+            })
+            .collect();
         Document { blocks }
     }
 
@@ -300,6 +314,43 @@ mod tests {
             }])
             .to_markdown(),
             "---\n"
+        );
+    }
+
+    #[test]
+    fn task_of_dashes_becomes_rule() {
+        let doc = Document::from_blocks(vec![
+            Block::task("---"),
+            Block::task("-----"),
+            Block::task("* * *"),
+            Block::task("--"),
+            Block::task("--- not a rule"),
+        ]);
+        assert_eq!(
+            doc.to_markdown(),
+            "---\n-----\n* * *\n- [ ] --\n- [ ] --- not a rule\n"
+        );
+        assert!(matches!(doc.blocks[0], Block::Rule { .. }));
+    }
+
+    #[test]
+    fn task_of_heading_text_becomes_heading() {
+        let doc = Document::from_blocks(vec![
+            Block::task("# Title"),
+            Block::task("###  Deep  "),
+            Block::task("#nope"),
+            Block::task("####### seven"),
+        ]);
+        assert_eq!(
+            doc.to_markdown(),
+            "# Title\n### Deep\n- [ ] #nope\n- [ ] ####### seven\n"
+        );
+        assert_eq!(
+            doc.blocks[1],
+            Block::Heading {
+                level: 3,
+                text: "Deep".into()
+            }
         );
     }
 

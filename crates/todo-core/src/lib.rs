@@ -9,10 +9,13 @@ pub mod markdown;
 pub mod scheme;
 pub mod store;
 
-pub use config::{Appearance, Config, EditorConfig, ShortcutConfig, TrayConfig, WindowConfig};
+pub use config::{
+    Appearance, Config, EditorConfig, ShortcutConfig, TabOverflow, TabsConfig, TrayConfig,
+    WindowConfig,
+};
 pub use markdown::{Block, Document};
 pub use scheme::{ColorScheme, Palette};
-pub use store::{parse_order, Snapshot, Store, TodoFile, ORDER_FILE};
+pub use store::{parse_order, parse_tabs_file, Snapshot, Store, TabsFile, TodoFile, ORDER_FILE};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

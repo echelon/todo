@@ -37,6 +37,16 @@ kbd { font-family: var(--mono); background: var(--surface); border: 1px solid va
 .tab:hover { background: var(--surface); color: var(--fg); }
 .tab.active { background: var(--surface); color: var(--fg); font-weight: 600; }
 .tab.dragging { opacity: .5; outline: 1.5px dashed var(--accent); outline-offset: -1px; }
+.tabs.wrap { flex-wrap: wrap; overflow: visible; }
+.tab[data-color] { padding-left: 20px; position: relative; }
+.tab[data-color]::before {
+  content: ''; position: absolute; left: 8px; top: 50%; width: 7px; height: 7px; border-radius: 50%;
+  transform: translateY(-50%); background: var(--tab-color);
+}
+.tab[data-color].active { background: color-mix(in srgb, var(--tab-color) 22%, var(--surface)); }
+.ctx .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; vertical-align: -1px; }
+.ctx .swatch.none { border: 1px solid var(--muted); }
+.ctx button.checked { font-weight: 600; }
 .tab-input {
   background: var(--surface); border: 1px solid var(--accent); color: var(--fg); border-radius: 6px;
   padding: 2px 6px; font: inherit; font-size: .92em; width: 100px; outline: none; flex-shrink: 0;
@@ -75,7 +85,7 @@ kbd { font-family: var(--mono); background: var(--surface); border: 1px solid va
 }
 .task .check, .task .del { cursor: pointer; }
 body.is-dragging, body.is-dragging * { cursor: grabbing !important; }
-.rule { border-top: 1px solid var(--border); margin: 10px 6px; height: 0; }
+.rule { border-top: 1px solid var(--border); margin: 10px 6px; height: 0; padding-bottom: 6px; }
 .task:hover { background: var(--surface); }
 .task.dragging { opacity: .35; outline: 1.5px dashed var(--accent); outline-offset: -1px; }
 .task.drop-inside { background: var(--surface); box-shadow: inset 0 0 0 2px var(--accent); }
@@ -155,6 +165,9 @@ input[type=checkbox] { accent-color: var(--accent); width: 15px; height: 15px; m
 .ctx button { text-align: left; border: none; background: transparent; color: var(--fg); padding: 5px 10px; border-radius: 5px; font-size: .92em; }
 .ctx button:hover { background: var(--surface); }
 .ctx button.danger { color: var(--danger); }
+.ctx button:disabled { opacity: .4; cursor: default; }
+.ctx .sep { height: 1px; background: var(--border); margin: 4px 6px; }
+.task.selected { background: var(--surface); box-shadow: inset 2px 0 0 var(--accent); }
 .modal { position: absolute; inset: 0; background: rgba(0, 0, 0, .35); display: grid; place-items: center; z-index: 60; }
 .dialog {
   background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; min-width: 220px; max-width: 85%;

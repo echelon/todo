@@ -50,6 +50,13 @@
       <div class="row"><label>Close hides to tray</label><input id="s-close" type="checkbox" /></div>
       <div class="row"><label>Show on every desktop</label><input id="s-spaces" type="checkbox" /></div>
       <div class="row"><label>Vim keys in markdown</label><input id="s-vim" type="checkbox" /></div>
+      <div class="row">
+        <label>Tabs that don't fit</label>
+        <select id="s-tabs">
+          <option value="scroll">Scroll</option>
+          <option value="wrap">Wrap to rows</option>
+        </select>
+      </div>
       <div class="row actions">
         <button id="s-open-config">Edit config</button>
         <button id="s-open-dir">Open folder</button>
@@ -58,10 +65,7 @@
       <div class="hint" id="s-hint"></div>
     </div>
 
-    <div id="ctx" class="ctx" hidden>
-      <button data-act="rename">Rename…</button>
-      <button data-act="delete" class="danger">Delete…</button>
-    </div>
+    <div id="ctx" class="ctx" hidden></div>
 
     <div id="modal" class="modal" hidden>
       <div class="dialog">

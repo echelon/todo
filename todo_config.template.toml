@@ -52,3 +52,7 @@ toggle_window = "CmdOrCtrl+Shift+Space"
 [editor]
 # Vim keybindings in the markdown view. `:w` saves, `:q` returns to the list.
 vim = true
+
+[tabs]
+# When the tabs don't fit the window width: "scroll" (one row) or "wrap" (multiple rows).
+overflow = "scroll"

@@ -49,6 +49,59 @@ pub struct Config {
     pub tray: TrayConfig,
     pub shortcuts: ShortcutConfig,
     pub editor: EditorConfig,
+    pub tabs: TabsConfig,
+}
+
+/// What the tab strip does when it is wider than the window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TabOverflow {
+    /// One row that scrolls horizontally.
+    #[default]
+    Scroll,
+    /// Wrap onto as many rows as needed.
+    Wrap,
+}
+
+impl TabOverflow {
+    pub fn id(self) -> &'static str {
+        match self {
+            TabOverflow::Scroll => "scroll",
+            TabOverflow::Wrap => "wrap",
+        }
+    }
+}
+
+/// Progress indicator shown next to each tab title.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum TabBadge {
+    #[default]
+    None,
+    /// `3/5` — completed / total.
+    Ratio,
+    /// `60%` — completed percentage.
+    Percent,
+    /// `(2)` — tasks still open.
+    Remaining,
+}
+
+impl TabBadge {
+    pub fn id(self) -> &'static str {
+        match self {
+            TabBadge::None => "none",
+            TabBadge::Ratio => "ratio",
+            TabBadge::Percent => "percent",
+            TabBadge::Remaining => "remaining",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(default, rename_all = "snake_case")]
+pub struct TabsConfig {
+    pub overflow: TabOverflow,
+    pub badge: TabBadge,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -116,6 +169,7 @@ impl Default for Config {
             tray: TrayConfig::default(),
             shortcuts: ShortcutConfig::default(),
             editor: EditorConfig::default(),
+            tabs: TabsConfig::default(),
         }
     }
 }

@@ -19,6 +19,18 @@ pub struct TodoFile {
     pub name: String,
     pub raw: String,
     pub blocks: Vec<Block>,
+    /// Tab color from `tabs.toml` (any CSS color string), if set.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+}
+
+/// Everything we keep in `tabs.toml`.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct TabsFile {
+    #[serde(default)]
+    pub order: Vec<String>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub colors: BTreeMap<String, String>,
 }
 
 /// Everything the UI needs to render: the directory and all files, sorted by
@@ -34,18 +46,18 @@ pub struct Store {
     dir: PathBuf,
     /// name → raw content as last seen (either read from disk or written by us).
     files: BTreeMap<String, String>,
-    /// Explicit tab order from `tabs.toml` (may name files that don't exist).
-    order: Vec<String>,
+    /// Tab order and colors from `tabs.toml` (may name files that don't exist).
+    tabs: TabsFile,
 }
 
-/// Parse `tabs.toml` leniently: any parse error, missing key, or non-string
-/// entry just means "no explicit order" for that part. Never fails.
-pub fn parse_order(text: &str) -> Vec<String> {
+/// Parse `tabs.toml` leniently: any parse error, missing key, or wrongly
+/// typed entry just means "no setting" for that part. Never fails.
+pub fn parse_tabs_file(text: &str) -> TabsFile {
     let mut seen = HashSet::new();
     let clean = |n: &str| n.trim().trim_end_matches(".md").to_string();
-    let from_toml: Option<Vec<String>> = text
-        .parse::<toml::Table>()
-        .ok()
+    let table = text.parse::<toml::Table>().ok();
+    let from_toml: Option<Vec<String>> = table
+        .as_ref()
         .and_then(|t| t.get("order").and_then(|v| v.as_array()).cloned())
         .map(|arr| arr.iter().filter_map(|v| v.as_str()).map(clean).collect());
     // Corrupt TOML? Salvage whatever quoted names sit inside `order = [ … ]`.
@@ -60,25 +72,38 @@ pub fn parse_order(text: &str) -> Vec<String> {
         let body = &body[..body.find(']').unwrap_or(body.len())];
         body.split('"').skip(1).step_by(2).map(clean).collect()
     });
-    raw.into_iter()
+    let order = raw
+        .into_iter()
         .filter(|n| !n.is_empty() && seen.insert(n.clone()))
-        .collect()
+        .collect();
+    let colors = table
+        .as_ref()
+        .and_then(|t| t.get("colors").and_then(|v| v.as_table()))
+        .map(|t| {
+            t.iter()
+                .filter_map(|(k, v)| v.as_str().map(|c| (clean(k), c.trim().to_string())))
+                .filter(|(k, c)| !k.is_empty() && !c.is_empty() && c.len() <= 64)
+                .collect()
+        })
+        .unwrap_or_default();
+    TabsFile { order, colors }
 }
 
-fn load_order(dir: &Path) -> Vec<String> {
+/// Just the `order` part of [`parse_tabs_file`].
+pub fn parse_order(text: &str) -> Vec<String> {
+    parse_tabs_file(text).order
+}
+
+fn load_tabs_file(dir: &Path) -> TabsFile {
     std::fs::read_to_string(dir.join(ORDER_FILE))
-        .map(|t| parse_order(&t))
+        .map(|t| parse_tabs_file(&t))
         .unwrap_or_default()
 }
 
-fn order_file_text(order: &[String]) -> String {
-    #[derive(Serialize)]
-    struct OrderFile<'a> {
-        order: &'a [String],
-    }
-    let body = toml::to_string(&OrderFile { order }).unwrap_or_default();
+fn tabs_file_text(tabs: &TabsFile) -> String {
+    let body = toml::to_string(tabs).unwrap_or_default();
     format!(
-        "# Tab order for the Todo app. Lists not mentioned here follow, alphabetically.\n{body}"
+        "# Tab order and colors for the Todo app.\n# Lists not mentioned in `order` follow, alphabetically. Colors are any CSS color.\n{body}"
     )
 }
 
@@ -89,7 +114,7 @@ impl Store {
         let s = Store {
             dir: dir.into(),
             files: BTreeMap::new(),
-            order: Vec::new(),
+            tabs: TabsFile::default(),
         };
         s.ensure_dir();
         s
@@ -102,7 +127,7 @@ impl Store {
     pub fn set_dir(&mut self, dir: impl Into<PathBuf>) {
         self.dir = dir.into();
         self.files.clear();
-        self.order.clear();
+        self.tabs = TabsFile::default();
         self.ensure_dir();
     }
 
@@ -135,16 +160,35 @@ impl Store {
                 }
             }
         }
-        let order = load_order(&self.dir);
-        let changed = next != self.files || order != self.order;
+        let tabs = load_tabs_file(&self.dir);
+        let changed = next != self.files || tabs != self.tabs;
         self.files = next;
-        self.order = order;
+        self.tabs = tabs;
         changed
     }
 
     /// The explicit order as last read from / written to `tabs.toml`.
     pub fn order(&self) -> &[String] {
-        &self.order
+        &self.tabs.order
+    }
+
+    pub fn colors(&self) -> &BTreeMap<String, String> {
+        &self.tabs.colors
+    }
+
+    /// Set (or with `None`, clear) a tab's color in `tabs.toml`.
+    pub fn set_color(&mut self, name: &str, color: Option<&str>) -> Result<()> {
+        let name = sanitize_name(name)?;
+        let mut tabs = self.tabs.clone();
+        match color.map(str::trim).filter(|c| !c.is_empty()) {
+            Some(c) => {
+                tabs.colors.insert(name, c.chars().take(64).collect());
+            }
+            None => {
+                tabs.colors.remove(&name);
+            }
+        }
+        self.write_tabs(tabs)
     }
 
     /// Persist a new tab order. Names that don't exist are dropped; files not
@@ -156,15 +200,17 @@ impl Store {
             .filter_map(|n| sanitize_name(n).ok())
             .filter(|n| self.files.contains_key(n) && seen.insert(n.clone()))
             .collect();
-        self.write_order(order)
+        let mut tabs = self.tabs.clone();
+        tabs.order = order;
+        self.write_tabs(tabs)
     }
 
-    fn write_order(&mut self, order: Vec<String>) -> Result<()> {
-        if order == self.order {
+    fn write_tabs(&mut self, tabs: TabsFile) -> Result<()> {
+        if tabs == self.tabs {
             return Ok(());
         }
-        atomic_write(&self.dir.join(ORDER_FILE), &order_file_text(&order))?;
-        self.order = order;
+        atomic_write(&self.dir.join(ORDER_FILE), &tabs_file_text(&tabs))?;
+        self.tabs = tabs;
         Ok(())
     }
 
@@ -176,9 +222,11 @@ impl Store {
                 name: name.clone(),
                 raw: raw.clone(),
                 blocks: Document::parse(raw).blocks,
+                color: self.tabs.colors.get(name).cloned(),
             })
             .collect();
         let rank: HashMap<&str, usize> = self
+            .tabs
             .order
             .iter()
             .enumerate()
@@ -254,14 +302,16 @@ impl Store {
         if let Some(raw) = self.files.remove(&from) {
             self.files.insert(to.clone(), raw);
         }
-        if self.order.contains(&from) {
-            let order = self
-                .order
-                .iter()
-                .map(|n| if *n == from { to.clone() } else { n.clone() })
-                .collect();
-            let _ = self.write_order(order);
+        let mut tabs = self.tabs.clone();
+        tabs.order = tabs
+            .order
+            .iter()
+            .map(|n| if *n == from { to.clone() } else { n.clone() })
+            .collect();
+        if let Some(c) = tabs.colors.remove(&from) {
+            tabs.colors.insert(to.clone(), c);
         }
+        let _ = self.write_tabs(tabs);
         Ok(to)
     }
 
@@ -273,10 +323,10 @@ impl Store {
         }
         std::fs::remove_file(path)?;
         self.files.remove(&name);
-        if self.order.contains(&name) {
-            let order = self.order.iter().filter(|n| **n != name).cloned().collect();
-            let _ = self.write_order(order);
-        }
+        let mut tabs = self.tabs.clone();
+        tabs.order.retain(|n| *n != name);
+        tabs.colors.remove(&name);
+        let _ = self.write_tabs(tabs);
         Ok(())
     }
 }
@@ -459,6 +509,37 @@ mod tests {
         s.delete("Delta").unwrap();
         assert_eq!(s.order(), &["Alpha".to_string()]);
         assert_eq!(names(&s), vec!["Alpha", "beta", "Todo"]);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn tab_colors_round_trip_and_survive_rename() {
+        let (mut s, dir) = tmp_store();
+        s.scan();
+        s.create("Work").unwrap();
+        s.set_color("Work", Some("#3e63dd")).unwrap();
+        assert!(!s.scan(), "own color write is not an external change");
+        let work = |s: &Store| {
+            s.snapshot()
+                .files
+                .into_iter()
+                .find(|f| f.name == "Work")
+                .unwrap()
+        };
+        assert_eq!(work(&s).color.as_deref(), Some("#3e63dd"));
+        s.rename("Work", "Jobs").unwrap();
+        assert_eq!(s.colors().get("Jobs").map(String::as_str), Some("#3e63dd"));
+        s.set_color("Jobs", None).unwrap();
+        assert!(s.colors().is_empty());
+        // Hand-written file with a bad entry: good ones survive, bad ones are ignored.
+        std::fs::write(
+            dir.join(ORDER_FILE),
+            "order = [\"Jobs\"]\n[colors]\nJobs = \"tomato\"\nTodo = 5\n",
+        )
+        .unwrap();
+        assert!(s.scan());
+        assert_eq!(s.colors().len(), 1);
+        assert_eq!(s.snapshot().files[0].color.as_deref(), Some("tomato"));
         std::fs::remove_dir_all(dir).ok();
     }
 

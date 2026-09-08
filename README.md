@@ -22,7 +22,8 @@ files; edit them in the app or in any editor and both stay in sync.
   untouched, so the app never mangles your files. Drag tabs left or right to
   reorder them; the order is kept in `tabs.toml` next to the lists
   (`order = ["Work", "Home"]`). Anything not listed follows alphabetically,
-  and a missing or broken `tabs.toml` simply means alphabetical.
+  and a missing or broken `tabs.toml` simply means alphabetical. Tab colors
+  live in the same file under `[colors]` (`Work = "#3e63dd"`, any CSS color).
 
 ## Features
 
@@ -32,7 +33,11 @@ files; edit them in the app or in any editor and both stay in sync.
   while editing an item. Dragging a parent moves its whole subtree. To nest
   while dragging, either drop slightly to the right below another item, or
   hover over the middle of an item until it shows "drop inside" and release
-  to file it as that item's last child. `---` renders as a divider.
+  to file it as that item's last child. A dropped item never adopts the
+  children of the item it lands next to: it can go at most one level deeper
+  than the item above it and no shallower than the item below it. `---` renders as a divider, and typing
+  `---` as a todo creates one (right-click a divider to delete it). Likewise
+  typing `# Title` … `###### Title` as a todo creates a heading.
 - Markdown view (`⌘/Ctrl+E`) is a CodeMirror 6 editor with **vim
   keybindings** (normal / insert / visual / visual-line / visual-block,
   operators, motions, text objects, counts, registers, `.` repeat, `/` `?` `n`
@@ -75,6 +80,7 @@ comments preserved.
 | `shortcuts.toggle_window` | `"CmdOrCtrl+Shift+Space"` | `""` disables |
 
 | `editor.vim` | `true` | vim keybindings in the markdown view |
+| `tabs.overflow` | `"scroll"` | `"scroll"` (one row) or `"wrap"` (multiple rows) when tabs don't fit |
 
 **Dark schemes**: `black`, `forest_mist`, `midnight_blue`, `nord`, `dracula`,
 `gruvbox_dark`, `solarized_dark`, `catppuccin_mocha`, `molokai_dark`.
@@ -93,10 +99,13 @@ comments preserved.
 | `⌘/Ctrl+,` | settings |
 | `Enter` while editing | commit and start the next item |
 | `Tab` / `Shift+Tab` while editing | nest / un-nest the item (and its subtree) |
+| click a row, `↑` / `↓` | select a todo; `Enter` edits, `Space` toggles, `⌫` deletes it and its subtree |
+| `⌘/Ctrl+C` / `X` / `V` | copy / cut / paste the selected todo tree (paste lands after the selection, or at the end); works across tabs and puts markdown on the system clipboard |
+| right-click a todo | menu: copy, cut, paste, copy to / move to another tab, delete |
 | `Esc` | cancel edit / close popover / hide to tray |
 | `⌘/Ctrl+Shift+Space` | global: show / hide |
 | double-click a tab | rename that list (renames the `.md` file) |
-| right-click a tab | menu: rename / delete that list |
+| right-click a tab | menu: rename, color, delete that list |
 
 ## Building
 

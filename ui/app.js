@@ -15,7 +15,7 @@ const el = {
   viewSeg: $('#view-seg'), pin: $('#pin-btn'), hide: $('#hide-btn'), settingsBtn: $('#settings-btn'), settings: $('#settings'),
   ctx: $('#ctx'), modal: $('#modal'), modalMsg: $('#modal-msg'), modalOk: $('#modal-ok'), modalCancel: $('#modal-cancel'), toast: $('#toast'),
   sAppearance: $('#s-appearance'), sLight: $('#s-light'), sDark: $('#s-dark'), sOpacity: $('#s-opacity'), sFont: $('#s-font'),
-  sTop: $('#s-top'), sClose: $('#s-close'), sSpaces: $('#s-spaces'), sVim: $('#s-vim'), sHint: $('#s-hint'),
+  sTop: $('#s-top'), sClose: $('#s-close'), sSpaces: $('#s-spaces'), sVim: $('#s-vim'), sTabs: $('#s-tabs'), sHint: $('#s-hint'),
 };
 const CHECK_SVG = '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6.5l2.6 2.6L10 3.5"/></svg>';
 
@@ -23,6 +23,8 @@ const S = {
   cfg: null, snap: null, active: null, view: 'rendered',
   editing: null, dragging: false, suppressClick: false, pendingSnap: null,
   mdTimer: null, mdDirty: false, opacityTimer: null,
+  selected: null,            // index of the selected task row (rendered view)
+  clip: null, clipText: '',  // internal clipboard: blocks + the markdown we put on the system clipboard
 };
 
 /* ── theme ─────────────────────────────────────────────── */
@@ -118,6 +120,7 @@ function renderTabs() {
     b.textContent = f.name;
     b.dataset.name = f.name;
     b.title = f.name + '.md  (double-click to rename, right-click for menu)';
+    if (f.color) { b.dataset.color = f.color; b.style.setProperty('--tab-color', f.color); }
     el.tabs.append(b);
   }
   el.tabs.querySelector('.tab.active')?.scrollIntoView({ inline: 'nearest', block: 'nearest' });
@@ -128,6 +131,7 @@ function setActive(name) {
   flushMd();
   if (S.editing) commitEdit();
   S.active = name;
+  S.selected = null;
   localStorage.setItem('active', name ?? '');
   renderTabs();
   refreshView();
@@ -217,9 +221,30 @@ function renameTabPrompt(tab) {
   inp.addEventListener('blur', () => finish(true));
 }
 
-/* ── tab context menu: Rename / Delete ─────────────────── */
-function openCtx(tab, x, y) {
-  el.ctx.dataset.name = tab.dataset.name;
+/* ── context menu (tabs and todos) ─────────────────────── */
+/** items: {label, onClick, danger?, disabled?, items?: [...]} or {sep: true}. */
+function showMenu(x, y, items) {
+  el.ctx.textContent = '';
+  for (const it of items) {
+    if (!it) continue;
+    if (it.sep) { el.ctx.append(div('sep')); continue; }
+    const b = document.createElement('button');
+    if ('color' in it) {
+      const sw = document.createElement('span');
+      sw.className = 'swatch' + (it.color ? '' : ' none');
+      if (it.color) sw.style.background = it.color;
+      b.append(sw);
+    }
+    b.append(document.createTextNode(it.label));
+    if (it.checked) b.classList.add('checked');
+    if (it.danger) b.classList.add('danger');
+    b.disabled = !!it.disabled;
+    b.onclick = () => {
+      if (it.items) showMenu(x, y, [{ label: '‹ Back', onClick: () => showMenu(x, y, items) }, { sep: true }, ...it.items]);
+      else { closeCtx(); it.onClick?.(); }
+    };
+    el.ctx.append(b);
+  }
   el.ctx.hidden = false;
   const app = $('#app').getBoundingClientRect();
   const w = el.ctx.offsetWidth, h = el.ctx.offsetHeight;
@@ -232,8 +257,27 @@ el.tabs.addEventListener('contextmenu', (e) => {
   const t = e.target.closest('.tab');
   if (!t) return;
   e.preventDefault();
-  openCtx(t, e.clientX, e.clientY);
+  const name = t.dataset.name;
+  const current = S.snap.files.find((f) => f.name === name)?.color || null;
+  showMenu(e.clientX, e.clientY, [
+    { label: 'Rename…', onClick: () => { const tab = el.tabs.querySelector(`.tab[data-name="${CSS.escape(name)}"]`); if (tab) renameTabPrompt(tab); } },
+    { label: 'Color…', items: [
+      { label: 'None', color: null, checked: !current, onClick: () => setTabColor(name, null) },
+      ...TAB_COLORS.map(([label, color]) => ({ label, color, checked: current === color, onClick: () => setTabColor(name, color) })),
+    ] },
+    { sep: true },
+    { label: 'Delete…', danger: true, onClick: () => deleteListPrompt(name) },
+  ]);
 });
+
+const TAB_COLORS = [
+  ['Red', '#e5484d'], ['Orange', '#f76b15'], ['Yellow', '#f5d90a'], ['Green', '#30a46c'], ['Teal', '#12a594'],
+  ['Blue', '#3e63dd'], ['Purple', '#8e4ec6'], ['Pink', '#e93d82'], ['Gray', '#8b8d98'],
+];
+
+async function setTabColor(name, color) {
+  try { applySnapshot(await invoke('set_tab_color', { name, color })); renderTabs(); } catch (err) { toast(err); }
+}
 
 async function deleteListPrompt(name) {
   if (await confirmDialog(`Delete the list "${name}" and its file ${name}.md?`)) {
@@ -241,14 +285,6 @@ async function deleteListPrompt(name) {
   }
 }
 
-el.ctx.addEventListener('click', (e) => {
-  const b = e.target.closest('button'); if (!b) return;
-  const name = el.ctx.dataset.name;
-  closeCtx();
-  const tab = el.tabs.querySelector(`.tab[data-name="${CSS.escape(name)}"]`);
-  if (b.dataset.act === 'rename' && tab) renameTabPrompt(tab);
-  else if (b.dataset.act === 'delete') deleteListPrompt(name);
-});
 document.addEventListener('mousedown', (e) => { if (!el.ctx.hidden && !e.target.closest('#ctx')) closeCtx(); });
 
 function newListPrompt() {
@@ -337,6 +373,10 @@ function renderList() {
   const scroll = el.list.scrollTop;
   el.list.replaceChildren(frag);
   el.list.scrollTop = scroll;
+  if (S.selected != null) {
+    const r = rowAt(S.selected);
+    if (r?.classList.contains('task')) r.classList.add('selected'); else S.selected = null;
+  }
   updateCount();
 }
 
@@ -350,11 +390,32 @@ function updateCount() {
 
 function rowAt(i) { return el.list.querySelector(`.block[data-i="${i}"]`); }
 
+/** Where a new item goes when appended: before trailing blanks, unless those blanks
+ *  are the spacing after a heading/divider (then after them). */
+function appendIndex(blocks) {
+  let at = blocks.length;
+  while (at > 0 && blocks[at - 1].kind === 'blank') at--;
+  if (at > 0 && at < blocks.length && (blocks[at - 1].kind === 'heading' || blocks[at - 1].kind === 'rule')) return blocks.length;
+  return at;
+}
+
+/** `---`, `***`, `___` (3+ chars, spaces allowed) typed as a todo means "a divider". */
+const isRuleText = (t) => /^([-*_])(\s*\1){2,}$/.test(t.trim());
+/** `# Title` … `###### Title` typed as a todo means "a heading". */
+function headingFromText(t) {
+  const m = /^(#{1,6})[ \t]+(\S.*)$/.exec(t.trim());
+  return m ? { kind: 'heading', level: m[1].length, text: m[2].trim() } : null;
+}
+/** The block a freshly typed todo text really represents. */
+function blockFromTyped(text, indent = '') {
+  if (isRuleText(text)) return { kind: 'rule', text: text.trim() };
+  return headingFromText(text) || { kind: 'task', done: false, text, indent };
+}
+
 function addTask(text) {
   const f = file(); if (!f) return;
-  let idx = f.blocks.length;
-  while (idx > 0 && f.blocks[idx - 1].kind === 'blank') idx--;
-  f.blocks.splice(idx, 0, { kind: 'task', done: false, text, indent: '' });
+  const idx = appendIndex(f.blocks);
+  f.blocks.splice(idx, 0, blockFromTyped(text));
   renderList();
   const add = el.list.querySelector('.add');
   add.focus();
@@ -367,21 +428,191 @@ el.list.addEventListener('click', async (e) => {
   const f = file(); if (!f) return;
   const row = e.target.closest('.block'); if (!row) return;
   const i = +row.dataset.i; const b = f.blocks[i];
+  if (b.kind === 'task') setSelected(i); else setSelected(null);
   if (e.target.closest('.check')) {
     b.done = !b.done;
     row.classList.toggle('done', b.done);
     updateCount();
     save(f);
   } else if (e.target.closest('.del')) {
-    if (await confirmDialog(`Delete "${b.text || '(empty)'}"?`)) {
-      f.blocks.splice(i, 1);
-      renderList();
-      save(f);
-    }
+    deleteTask(i);
   } else if (e.target.closest('.text, .heading, .para') && !e.target.closest('.edit')) {
     startEdit(row);
   }
 });
+
+el.list.addEventListener('contextmenu', (e) => {
+  const rule = e.target.closest('.rule');
+  if (rule) {
+    e.preventDefault();
+    const ri = +rule.dataset.i;
+    showMenu(e.clientX, e.clientY, [{ label: 'Delete divider', danger: true, onClick: () => {
+      const f = file(); if (!f || f.blocks[ri]?.kind !== 'rule') return;
+      f.blocks.splice(ri, 1); renderList(); save(f);
+    } }]);
+    return;
+  }
+  const row = e.target.closest('.task');
+  if (!row || e.target.closest('input')) return;
+  e.preventDefault();
+  if (S.editing) commitEdit();
+  const i = +row.dataset.i;
+  setSelected(i);
+  const others = S.snap.files.map((f) => f.name).filter((n) => n !== S.active);
+  const to = (fn) => others.map((n) => ({ label: n, onClick: () => fn(n) }));
+  showMenu(e.clientX, e.clientY, [
+    { label: 'Copy', onClick: copySelected },
+    { label: 'Cut', onClick: cutSelected },
+    { label: 'Paste', disabled: !S.clip, onClick: () => pasteBlocks(S.clip) },
+    { sep: true },
+    others.length ? { label: 'Copy to…', items: to(copySelectedTo) } : null,
+    others.length ? { label: 'Move to…', items: to(moveSelectedTo) } : null,
+    others.length ? { sep: true } : null,
+    { label: 'Delete…', danger: true, onClick: () => deleteTask(i) },
+  ]);
+});
+
+/* ── selection, clipboard, cross-tab moves ─────────────── */
+function setSelected(i) {
+  S.selected = i;
+  for (const r of el.list.querySelectorAll('.task.selected')) r.classList.remove('selected');
+  if (i != null) rowAt(i)?.classList.add('selected');
+}
+
+const deepClone = (blocks) => JSON.parse(JSON.stringify(blocks));
+
+/** A task with its subtree, re-based so the root sits at level 0. */
+function subtreeBlocks(f, i) {
+  const out = deepClone(f.blocks.slice(i, subtreeEnd(f.blocks, i)));
+  const root = levelOf(out[0]);
+  for (const b of out) b.indent = INDENT.repeat(Math.max(0, levelOf(b) - root));
+  return out;
+}
+
+function blocksToMarkdown(blocks) {
+  return blocks.map((b) =>
+    b.kind === 'heading' ? '#'.repeat(b.level) + ' ' + b.text
+    : b.kind === 'task' ? b.indent + (b.done ? '- [x]' : '- [ ]') + (b.text ? ' ' + b.text : '')
+    : b.kind === 'rule' ? (b.text || '---')
+    : b.kind === 'text' ? b.text : '').map((l) => l + '\n').join('');
+}
+
+/** Task lines from arbitrary text (e.g. the system clipboard), re-based to level 0. */
+function parseTaskLines(text) {
+  const out = [];
+  for (const line of String(text || '').replace(/\r\n/g, '\n').split('\n')) {
+    const m = /^(\s*)[-*+]\s+\[( |x|X)\](?:\s+(.*)|\s*$)/.exec(line);
+    if (m) out.push({ kind: 'task', indent: m[1], done: m[2] !== ' ', text: (m[3] || '').trim() });
+  }
+  if (!out.length) return out;
+  const min = Math.min(...out.map(levelOf));
+  for (const b of out) b.indent = INDENT.repeat(levelOf(b) - min);
+  return out;
+}
+
+function selectedTask() {
+  const f = file();
+  return f && S.selected != null && f.blocks[S.selected]?.kind === 'task' ? S.selected : null;
+}
+
+function copySelected() {
+  const i = selectedTask(); if (i == null) return;
+  const blocks = subtreeBlocks(file(), i);
+  S.clip = blocks;
+  S.clipText = blocksToMarkdown(blocks);
+  try { navigator.clipboard?.writeText(S.clipText).catch(() => {}); } catch { /* clipboard unavailable */ }
+}
+
+function removeSubtree(f, i) {
+  const n = subtreeEnd(f.blocks, i) - i;
+  f.blocks.splice(i, n);
+  return n;
+}
+
+function cutSelected() {
+  const i = selectedTask(); if (i == null) return;
+  copySelected();
+  const f = file();
+  removeSubtree(f, i);
+  setSelected(null);
+  renderList();
+  save(f);
+}
+
+/** Insert `blocks` after the selected task's subtree at its level, else at the end of the list. */
+function pasteBlocks(blocks) {
+  const f = file(); if (!f || !blocks?.length) return;
+  const clone = deepClone(blocks);
+  let at, level;
+  const i = selectedTask();
+  if (i != null) { level = levelOf(f.blocks[i]); at = subtreeEnd(f.blocks, i); }
+  else { level = 0; at = appendIndex(f.blocks); }
+  for (const b of clone) b.indent = INDENT.repeat(levelOf(b) + level);
+  f.blocks.splice(at, 0, ...clone);
+  renderList();
+  setSelected(at);
+  rowAt(at)?.scrollIntoView({ block: 'nearest' });
+  save(f);
+}
+
+/** Cmd/Ctrl+V: prefer fresher text from the system clipboard, else our own copy. */
+async function pasteFromClipboard() {
+  let text = null;
+  try {
+    // Reading may prompt or hang on some platforms; never let that block a paste.
+    text = await Promise.race([navigator.clipboard.readText(), new Promise((r) => setTimeout(() => r(null), 150))]);
+  } catch { /* not permitted or unavailable */ }
+  if (text != null && text !== S.clipText) {
+    const blocks = parseTaskLines(text);
+    if (blocks.length) { pasteBlocks(blocks); return; }
+  }
+  pasteBlocks(S.clip);
+}
+
+function appendTo(name, blocks) {
+  const t = S.snap.files.find((x) => x.name === name); if (!t) return;
+  const clone = deepClone(blocks);
+  t.blocks.splice(appendIndex(t.blocks), 0, ...clone);
+  save(t);
+}
+
+function copySelectedTo(name) {
+  const i = selectedTask(); if (i == null) return;
+  appendTo(name, subtreeBlocks(file(), i));
+}
+
+function moveSelectedTo(name) {
+  const i = selectedTask(); if (i == null) return;
+  const f = file();
+  const blocks = subtreeBlocks(f, i);
+  removeSubtree(f, i);
+  setSelected(null);
+  renderList();
+  save(f);
+  appendTo(name, blocks);
+}
+
+async function deleteTask(i) {
+  const f = file(); if (!f || f.blocks[i]?.kind !== 'task') return;
+  const n = subtreeEnd(f.blocks, i) - i;
+  const nested = n > 1 ? ` and ${n - 1} nested item${n > 2 ? 's' : ''}` : '';
+  if (await confirmDialog(`Delete "${f.blocks[i].text || '(empty)'}"${nested}?`)) {
+    removeSubtree(f, i);
+    if (S.selected === i) S.selected = null;
+    renderList();
+    save(f);
+  }
+}
+
+function moveSelection(dir) {
+  const f = file(); if (!f) return;
+  const tasks = f.blocks.map((b, i) => (b.kind === 'task' ? i : -1)).filter((i) => i >= 0);
+  if (!tasks.length) return;
+  const cur = S.selected == null ? -1 : tasks.indexOf(S.selected);
+  const next = cur < 0 ? (dir > 0 ? tasks[0] : tasks[tasks.length - 1]) : tasks[Math.max(0, Math.min(tasks.length - 1, cur + dir))];
+  setSelected(next);
+  rowAt(next)?.scrollIntoView({ block: 'nearest' });
+}
 
 /* ── inline editing ────────────────────────────────────── */
 function startEdit(row, isNew = false) {
@@ -431,6 +662,10 @@ function commitEdit(opts = {}) {
       else { b.text = ''; }
     } else if (e.kind === 'text') { f.blocks[e.i] = { kind: 'blank' }; }
     else { changed = false; } // headings keep their previous text
+  } else if (e.kind === 'task' && (isRuleText(text) || headingFromText(text))) {
+    f.blocks[e.i] = blockFromTyped(text, b.indent);
+    opts = { ...opts, newAfter: false };
+    if (S.selected === e.i) S.selected = null;
   } else {
     b.text = text;
   }
@@ -515,6 +750,17 @@ function visibleNext(node) {
   return n;
 }
 
+/** Level of the first non-dragged task below the group in the DOM (0 if the section ends). */
+function nextLevelInDom(row) {
+  const f = file();
+  for (let n = row.nextElementSibling; n; n = n.nextElementSibling) {
+    if (n.classList.contains('dragging') || n.classList.contains('blank')) continue;
+    if (n.classList.contains('task')) return levelOf(f.blocks[+n.dataset.i]);
+    return 0;
+  }
+  return 0;
+}
+
 /** Level of the nearest non-dragged task above the group in the DOM (-1 if none in this section). */
 function prevLevelInDom(row) {
   const f = file();
@@ -526,7 +772,7 @@ function prevLevelInDom(row) {
   return -1;
 }
 
-const INSIDE_DWELL_MS = 180;
+const INSIDE_DWELL_MS = 320;
 
 function setInside(row) {
   if (drag.inside === row) return;
@@ -582,9 +828,14 @@ function moveDrag(e) {
     for (const row of drag.group) el.list.insertBefore(row, ref);
   }
   // A slight move to the right nests under the item above the drop point.
+  // Bounds: at most one deeper than the item above, and never shallower than
+  // the item below — otherwise the dropped item would adopt that item's
+  // siblings/children (dragging C between A and A's child B must give
+  // A > [C, B], never A, C > B).
   const want = Math.round((e.clientX - drag.originX) / LEVEL_PX);
   const max = prevLevelInDom(drag.row) + 1;
-  applyLevel(Math.max(0, Math.min(max, want)));
+  const min = nextLevelInDom(drag.group[drag.group.length - 1]);
+  applyLevel(Math.max(min, Math.min(max, want)));
 }
 
 /** Move the dragged group so it becomes the last child of `target` (in the DOM). */
@@ -638,8 +889,16 @@ function endDrag() {
     order.push(b);
   }
   let changed = order.length !== f.blocks.length || order.some((b, i) => b !== f.blocks[i]);
-  const root = f.blocks[+d.row.dataset.i];
-  if (setLevel(order, order.indexOf(root), d.level)) changed = true;
+  // Re-indent exactly the blocks that were dragged (never the neighbours they
+  // landed next to, which would silently re-parent them).
+  const delta = d.level - d.rootLevel;
+  if (delta) {
+    for (const row of d.group) {
+      const b = f.blocks[+row.dataset.i];
+      b.indent = INDENT.repeat(Math.max(0, levelOf(b) + delta));
+    }
+    changed = true;
+  }
   if (changed) { f.blocks = order; renderList(); save(f); }
   else renderList(); // restore margins touched during the drag
   flushPending();
@@ -804,6 +1063,9 @@ function syncSettingsUI() {
   el.sSpaces.checked = c.tray.visible_on_all_workspaces;
   el.sVim.checked = !!c.editor?.vim;
   editor?.setVim(!!c.editor?.vim);
+  const overflow = c.tabs?.overflow === 'wrap' ? 'wrap' : 'scroll';
+  el.sTabs.value = overflow;
+  el.tabs.classList.toggle('wrap', overflow === 'wrap');
   const hk = c.shortcuts.toggle_window ? `Toggle: ${c.shortcuts.toggle_window} · ` : '';
   el.sHint.textContent = `${hk}Config: ${S.cfg.config_path}`;
 }
@@ -822,6 +1084,7 @@ el.sTop.addEventListener('change', () => patch({ always_on_top: el.sTop.checked 
 el.sClose.addEventListener('change', () => patch({ close_to_tray: el.sClose.checked }));
 el.sSpaces.addEventListener('change', () => patch({ visible_on_all_workspaces: el.sSpaces.checked }));
 el.sVim.addEventListener('change', () => patch({ vim: el.sVim.checked }));
+el.sTabs.addEventListener('change', () => patch({ tab_overflow: el.sTabs.value }));
 el.sOpacity.addEventListener('input', () => {
   document.documentElement.style.setProperty('--opacity', el.sOpacity.value);
   clearTimeout(S.opacityTimer);
@@ -855,15 +1118,33 @@ document.addEventListener('contextmenu', (e) => {
 /* ── keyboard ──────────────────────────────────────────── */
 document.addEventListener('keydown', (e) => {
   const mod = e.metaKey || e.ctrlKey;
+  const target = e.target instanceof Element ? e.target : document.body;
   if (e.key === 'Escape') {
     if (!el.modal.hidden) { S.modalResolve?.(false); return; }
     if (!el.ctx.hidden) { closeCtx(); return; }
     if (!el.settings.hidden) { toggleSettings(false); return; }
     if (S.editing) return; // handled by the input itself
-    if (e.target.closest('.md-host')) return; // vim owns Escape inside the editor
+    if (target.closest('.md-host')) return; // vim owns Escape inside the editor
     if (document.activeElement === el.md || document.activeElement?.classList.contains('add')) { document.activeElement.blur(); return; }
+    if (S.selected != null) { setSelected(null); return; }
     invoke('hide_window');
     return;
+  }
+  const typing = target.closest('input, textarea, select, .md-host');
+  if (!typing && S.view === 'rendered' && !S.editing) {
+    const k = e.key.toLowerCase();
+    if (mod && !e.shiftKey && (k === 'c' || k === 'x') && selectedTask() != null) { e.preventDefault(); k === 'c' ? copySelected() : cutSelected(); return; }
+    if (mod && !e.shiftKey && k === 'v') { if (S.clip) { e.preventDefault(); pasteFromClipboard(); } return; }
+    if (!mod && !e.altKey) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); moveSelection(1); return; }
+      if (e.key === 'ArrowUp') { e.preventDefault(); moveSelection(-1); return; }
+      const i = selectedTask();
+      if (i != null) {
+        if (e.key === 'Enter') { e.preventDefault(); startEdit(rowAt(i)); return; }
+        if (e.key === ' ') { e.preventDefault(); rowAt(i)?.querySelector('.check')?.click(); return; }
+        if (e.key === 'Backspace' || e.key === 'Delete') { e.preventDefault(); deleteTask(i); return; }
+      }
+    }
   }
   if (!mod) return;
   if (e.key === 'e' || e.key === 'E') { e.preventDefault(); setView(S.view === 'rendered' ? 'markdown' : 'rendered'); }
@@ -875,6 +1156,14 @@ document.addEventListener('keydown', (e) => {
     const f = S.snap?.files[+e.key - 1];
     if (f) { e.preventDefault(); setActive(f.name); }
   }
+});
+
+document.addEventListener('paste', (e) => {
+  if (S.view !== 'rendered' || S.editing || e.target.closest('input, textarea, .md-host')) return;
+  const blocks = parseTaskLines(e.clipboardData?.getData('text/plain'));
+  if (!blocks.length) return;
+  e.preventDefault();
+  pasteBlocks(blocks);
 });
 
 /* test hook (used by tools/harness) */
