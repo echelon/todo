@@ -11,13 +11,15 @@ declare global {
 const mock = new MockBackend();
 const qs = new URLSearchParams(location.search);
 
-// Query tweaks for screenshots: ?md ?tab=Work ?scheme=x ?wrap ?colors ?badge=ratio
+// Query tweaks for screenshots: ?md ?tab=Work ?scheme=x ?wrap ?colors ?badge=ratio ?tags ?light
 localStorage.setItem('view', qs.has('md') ? 'markdown' : 'rendered');
 localStorage.setItem('active', qs.get('tab') ?? 'Todo');
 const scheme = qs.get('scheme');
 if (scheme) mock.config.dark_scheme = scheme;
 if (qs.has('wrap')) { mock.config.tabs.overflow = 'wrap'; for (const n of ['Groceries', 'Reading list', 'Someday', 'Errands']) mock.files[n] = `# ${n}\n\n- [ ] one\n`; }
 if (qs.has('colors')) { mock.colors.Work = '#3e63dd'; mock.colors.Todo = '#30a46c'; }
+if (qs.has('tags')) mock.files.Todo = '# Todo\n\n- [ ] Ship the release [urgent]\n- [ ] Review PR [work] [today]\n- [ ] Call the bank [tomorrow]\n- [x] Done thing [urgent]\n\n## Weekend [later]\n\n- [ ] Clean the garage [home]\n  - [ ] Sort the shelves\n\n## Next up [focus]\n\n- [ ] Write the changelog\n';
+if (qs.has('light')) mock.config.appearance = 'light';
 const badge = qs.get('badge');
 if (badge === 'ratio' || badge === 'percent' || badge === 'remaining') mock.config.tabs.badge = badge;
 

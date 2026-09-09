@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   appendIndex, badgeText, blockFromTyped, blocksToMarkdown, clampDropLevel, collapseBlanks, countText, headingFromText,
   effectiveOpacity, hexToRgb, insertBlocks, isRuleText, levelOf, nextBadgeMode, nextTaskIndex, parseTaskLines, pasteTarget,
-  prevTaskLevel, removeSubtree, setLevel, shiftLevels, subtreeBlocks, subtreeEnd, taskCounts,
+  deferredFlags, isDeferred, isEmptyTask, prevTaskLevel, pruneEmptyTasks, removeSubtree, setLevel, shiftLevels, splitTags, subtreeBlocks, subtreeEnd, taskCounts,
 } from './model.ts';
 import type { Block } from './types.ts';
 
@@ -156,4 +156,56 @@ test('effectiveOpacity fades only when enabled, unfocused and unhovered', () => 
   assert.equal(effectiveOpacity(w, true, false), 0.9);
   assert.equal(effectiveOpacity(w, false, true), 0.9);
   assert.equal(effectiveOpacity({ ...w, inactive_opacity_enabled: false }, false, false), 0.9);
+});
+
+test('splitTags finds bracketed tags and leaves the rest as text', () => {
+  assert.deepEqual(splitTags('Buy milk [urgent] today'), [
+    { kind: 'text', text: 'Buy milk ' }, { kind: 'tag', tag: 'urgent', deferred: false }, { kind: 'text', text: ' today' },
+  ]);
+  assert.deepEqual(splitTags('[Later] Call mom'), [{ kind: 'tag', tag: 'Later', deferred: true }, { kind: 'text', text: ' Call mom' }]);
+  assert.deepEqual(splitTags('plain text'), [{ kind: 'text', text: 'plain text' }]);
+  assert.deepEqual(splitTags(''), []);
+  assert.deepEqual(splitTags('a [] b [ ] c'), [{ kind: 'text', text: 'a [] b [ ] c' }]);
+  assert.deepEqual(splitTags('x [[nested]] y').filter((p) => p.kind === 'tag').map((p) => p.kind === 'tag' && p.tag), ['nested']);
+  assert.deepEqual(splitTags('[next week][home]').map((p) => p.kind === 'tag' && p.tag), ['next week', 'home']);
+});
+
+test('isDeferred is case-insensitive and only true for parked tags', () => {
+  assert.equal(isDeferred('Fix bug [tomorrow]'), true);
+  assert.equal(isDeferred('Fix bug [LATER]'), true);
+  assert.equal(isDeferred('Fix bug [someday]'), true);
+  assert.equal(isDeferred('Fix bug [urgent]'), false);
+  assert.equal(isDeferred('Fix bug later'), false);
+  assert.equal(isDeferred('Fix bug'), false);
+});
+
+test('deferredFlags parks a deferred heading and its section until a same-or-higher heading', () => {
+  const b: Block[] = [
+    h('Now'), t('a'), t('b [later]'),
+    h('Parked [tomorrow]'), t('c'), h('Sub', 2), t('d', 1), h('Deep', 3), t('e'),
+    h('Back', 1), t('f'),
+    h('Also [later]', 2), t('g'), h('Free', 2), t('h'), h('Top'), t('i'),
+  ];
+  assert.deepEqual(deferredFlags(b), [
+    false, false, true,
+    true, true, true, true, true, true,
+    false, false,
+    true, true, false, false, false, false,
+  ]);
+  assert.deepEqual(deferredFlags([h('x [LATER]', 3), { kind: 'text', text: 'note' }, rule, blank, t('y')]), [true, true, true, true, true]);
+  assert.deepEqual(deferredFlags([h('x [urgent]'), t('y')]), [false, false]);
+});
+
+test('pruneEmptyTasks drops blank task lines and lifts their children', () => {
+  assert.equal(isEmptyTask(t('')), true);
+  assert.equal(isEmptyTask(t('   ')), true);
+  assert.equal(isEmptyTask(t('x')), false);
+  assert.equal(isEmptyTask(h('')), false);
+  const b: Block[] = [h('T'), t(''), t('a'), t('  ', 0), t('kid', 1), t('grandkid', 2), t('b'), blank, t('', 1), t('c')];
+  assert.deepEqual(pruneEmptyTasks(b), [1, 3, 8]);
+  assert.deepEqual(b.map((x) => (x.kind === 'task' ? `${x.text}@${levelOf(x)}` : x.kind)), ['heading', 'a@0', 'kid@0', 'grandkid@1', 'b@0', 'blank', 'c@0']);
+  assert.deepEqual(pruneEmptyTasks(b), []);
+  const only: Block[] = [t(''), t('')];
+  assert.deepEqual(pruneEmptyTasks(only), [0, 1]);
+  assert.deepEqual(only, []);
 });

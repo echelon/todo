@@ -117,6 +117,26 @@ body.is-dragging, body.is-dragging * { cursor: grabbing !important; }
 .task.done .check svg { opacity: 1; }
 .task .text { flex: 1; min-width: 0; overflow-wrap: anywhere; cursor: text; }
 .task.done .text { color: var(--muted); text-decoration: line-through; }
+.tag {
+  display: inline-block; vertical-align: .08em; margin: 0 2px; padding: 0 6px; border-radius: 999px;
+  font-size: .74em; font-weight: 600; line-height: 1.6; letter-spacing: .02em; white-space: nowrap; text-transform: none;
+  color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+}
+.heading .tag { vertical-align: .12em; }
+/* Parked items ([tomorrow], [later], … on the row or on a heading above it) read as not in play:
+   gray badges, muted text, faint checkbox. */
+.tag.deferred, .deferred .tag {
+  color: var(--muted); background: var(--tint); border-color: color-mix(in srgb, var(--muted) 45%, transparent); font-weight: 500;
+}
+.heading.deferred, .task.deferred .text { color: var(--muted); }
+.task.deferred .check { border-color: color-mix(in srgb, var(--muted) 60%, transparent); }
+.task.deferred:hover .check { border-color: var(--accent); }
+/* …and fade the whole row well into the background; hovering or selecting brings it back enough to work with. */
+.block.deferred { opacity: .38; transition: opacity .12s; }
+.task.deferred:hover, .task.deferred.selected, .task.deferred.drop-inside, .task.deferred.dragging { opacity: .85; }
+.heading.deferred:hover, .para.deferred:hover { opacity: .7; }
+.task.done .tag { text-decoration: none; opacity: .6; }
 .task .del {
   opacity: 0; border: none; background: transparent; color: var(--muted); padding: 0 4px; border-radius: 4px; line-height: 1.4;
 }

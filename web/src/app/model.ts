@@ -82,6 +82,54 @@ export function blockFromTyped(text: string, indent = ''): Block {
   return headingFromText(text) ?? { kind: 'task', done: false, text, indent };
 }
 
+/** Tags that mean "parked, not being worked on right now"; rows carrying one are grayed out. */
+export const DEFERRED_TAGS: ReadonlySet<string> = new Set(['tomorrow', 'later', 'someday']);
+
+export type TextPart = { kind: 'text'; text: string } | { kind: 'tag'; tag: string; deferred: boolean };
+
+export const isDeferredTag = (tag: string): boolean => DEFERRED_TAGS.has(tag.trim().toLowerCase());
+
+/**
+ * Split task text into plain runs and `[tag]` badges. A tag is a short bracketed word
+ * or phrase (`[urgent]`, `[next week]`); brackets around nothing or around more
+ * brackets are left as text.
+ */
+export function splitTags(text: string): TextPart[] {
+  const out: TextPart[] = [];
+  const re = /\[([^\[\]\n]{1,40})\]/g;
+  let last = 0;
+  for (let m = re.exec(text); m; m = re.exec(text)) {
+    const tag = m[1].trim();
+    if (!tag) continue;
+    if (m.index > last) out.push({ kind: 'text', text: text.slice(last, m.index) });
+    out.push({ kind: 'tag', tag, deferred: isDeferredTag(tag) });
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) out.push({ kind: 'text', text: text.slice(last) });
+  return out;
+}
+
+/** Whether a task or heading carries a deferred tag such as `[later]`. */
+export const isDeferred = (text: string): boolean => splitTags(text).some((p) => p.kind === 'tag' && p.deferred);
+
+/**
+ * Per block: whether it is parked, either by its own tag or by sitting under a
+ * deferred heading. A deferred heading covers everything up to the next heading
+ * of the same or a higher level (`# A [later]` covers its `##` subsections too).
+ */
+export function deferredFlags(blocks: Block[]): boolean[] {
+  let sectionLevel = 0; // 0 = no deferred heading in effect; else the level of the heading that parked this section
+  return blocks.map((b) => {
+    if (b.kind === 'heading') {
+      if (sectionLevel && b.level <= sectionLevel) sectionLevel = 0;
+      if (!sectionLevel && isDeferred(b.text)) sectionLevel = b.level;
+      return sectionLevel > 0;
+    }
+    if (sectionLevel) return true;
+    return b.kind === 'task' && isDeferred(b.text);
+  });
+}
+
 /** Serialize blocks the same way `todo-core` does (one line per block, `\n` endings). */
 export function blocksToMarkdown(blocks: Block[]): string {
   return blocks
@@ -124,6 +172,26 @@ export function removeSubtree(blocks: Block[], i: number): number {
   const n = subtreeEnd(blocks, i) - i;
   blocks.splice(i, n);
   return n;
+}
+
+/** A task line with nothing on it (`- [ ]`, `- [ ]   `): kept only while it is being typed into. */
+export const isEmptyTask = (b: Block): boolean => b.kind === 'task' && b.text.trim() === '';
+
+/**
+ * Drop empty task lines in place; their children (if any) move up a level so
+ * nothing is orphaned. Returns the original indices that were removed, so a
+ * caller can re-base an index it is holding on to.
+ */
+export function pruneEmptyTasks(blocks: Block[]): number[] {
+  const removed: number[] = [];
+  for (let i = 0, orig = 0; i < blocks.length; orig++) {
+    if (!isEmptyTask(blocks[i])) { i++; continue; }
+    const end = subtreeEnd(blocks, i);
+    shiftLevels(blocks.slice(i + 1, end), -1);
+    blocks.splice(i, 1);
+    removed.push(orig);
+  }
+  return removed;
 }
 
 /** Where pasted blocks go: after the selected task's subtree at its level, else appended at level 0. */

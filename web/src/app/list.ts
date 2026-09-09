@@ -1,7 +1,7 @@
 /** The rendered list: rows, selection, add box, delete, keyboard navigation. */
 import { copySelected, copySelectedTo, cutSelected, moveSelectedTo, pasteBlocks } from './clipboard.ts';
 import { commitEdit, startEdit } from './edit.ts';
-import { appendIndex, blockFromTyped, countText, LEVEL_PX, levelOf, nextTaskIndex, removeSubtree, subtreeEnd } from './model.ts';
+import { appendIndex, blockFromTyped, countText, deferredFlags, LEVEL_PX, levelOf, nextTaskIndex, removeSubtree, splitTags, subtreeEnd } from './model.ts';
 import { save } from './snapshot.ts';
 import { blockIndex, div, el, file, rowAt, S, targetEl } from './state.ts';
 import { updateActiveBadge } from './tabs.ts';
@@ -10,25 +10,28 @@ import { confirmDialog, showMenu } from './ui.ts';
 
 const CHECK_SVG = '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6.5l2.6 2.6L10 3.5"/></svg>';
 
-export function blockEl(b: Block, i: number): HTMLElement {
+/** `deferred`: the block is parked by its own `[later]`-style tag or by a deferred heading above it (see `deferredFlags`). */
+export function blockEl(b: Block, i: number, deferred = false): HTMLElement {
   let d: HTMLElement;
+  const parked = deferred ? ' deferred' : '';
   switch (b.kind) {
     case 'heading':
-      d = div('block heading h' + b.level);
-      d.textContent = b.text;
+      d = div('block heading h' + b.level + parked);
+      renderTags(d, b.text);
       break;
     case 'task': {
-      d = div('block task' + (b.done ? ' done' : ''));
+      d = div('block task' + (b.done ? ' done' : '') + parked);
       const lvl = levelOf(b);
       if (lvl) d.style.marginLeft = lvl * LEVEL_PX + 'px';
       const c = document.createElement('button'); c.className = 'check'; c.innerHTML = CHECK_SVG; c.title = 'Toggle';
-      const t = document.createElement('span'); t.className = 'text'; t.textContent = b.text || ' ';
+      const t = document.createElement('span'); t.className = 'text';
+      renderTags(t, b.text);
       const x = document.createElement('button'); x.className = 'del'; x.textContent = '✕'; x.title = 'Delete';
       d.append(c, t, x);
       break;
     }
     case 'text':
-      d = div('block para');
+      d = div('block para' + parked);
       d.textContent = b.text;
       break;
     case 'rule':
@@ -39,6 +42,20 @@ export function blockEl(b: Block, i: number): HTMLElement {
   }
   d.dataset.i = String(i);
   return d;
+}
+
+/** Fill `host` with the text: plain runs as text nodes, `[tag]`s as badges. */
+function renderTags(host: HTMLElement, text: string): void {
+  const parts = splitTags(text);
+  if (!parts.length) { host.textContent = ' '; return; }
+  for (const p of parts) {
+    if (p.kind === 'text') { host.append(p.text); continue; }
+    const tag = document.createElement('span');
+    tag.className = 'tag' + (p.deferred ? ' deferred' : '');
+    tag.textContent = p.tag;
+    tag.title = `[${p.tag}]`;
+    host.append(tag);
+  }
 }
 
 function addRow(): HTMLElement {
@@ -58,7 +75,8 @@ export function renderList(): void {
   el.empty.hidden = !!f;
   if (!f) { el.list.textContent = ''; el.count.textContent = ''; return; }
   const frag = document.createDocumentFragment();
-  f.blocks.forEach((b, i) => frag.append(blockEl(b, i)));
+  const deferred = deferredFlags(f.blocks);
+  f.blocks.forEach((b, i) => frag.append(blockEl(b, i, deferred[i])));
   frag.append(addRow());
   const scroll = el.list.scrollTop;
   el.list.replaceChildren(frag);

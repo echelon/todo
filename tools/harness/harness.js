@@ -309,11 +309,44 @@
       await sleep(10);
       check("escape drops the empty new item", !q("#list .edit") && rows().length === 8);
       await editRow(0, "", "Enter");
-      check("emptying an existing item keeps it as an empty task", F.Todo.includes("- [ ]\n- [ ] Click a checkbox!"));
-      check("enter still starts the next item", q("#list .edit")?.value === "" && rows().length === 9);
-      key("Escape", {}, q("#list .edit"));
+      check("emptying an existing item removes it", !F.Todo.includes("- [ ]\n") && F.Todo.includes("# Todo\n\n- [ ] Click a checkbox!") && !q("#list .edit") && rows().length === 7);
+      check("selection cleared with it", state().selected === null || rows()[state().selected]?.classList.contains("task"));
+    } },
+    { name: "empty items pruned", async run({ mock: mock2, F, check }) {
+      F.Work = "# Work\n\n- [ ]\n- [ ] Ship the todo app\n- [ ]   \n  - [ ] Orphan\n	- [ ]\n- [x] Write the core crate\n";
+      mock2.emit("todo:snapshot", mock2.snapshot());
       await sleep(10);
-      check("escape drops it again", !q("#list .edit") && rows().length === 8);
+      check("inactive tab not touched yet", F.Work.includes("- [ ]\n") && mock2.calls.filter((c) => c === "save_blocks").length === 0);
+      tab("Work").click();
+      await sleep(20);
+      check("empty lines gone from the file", F.Work === "# Work\n\n- [ ] Ship the todo app\n- [ ] Orphan\n- [x] Write the core crate\n");
+      check("list matches", texts().join("|") === "Ship the todo app|Orphan|Write the core crate" && rows().every((r) => r.style.marginLeft === ""));
+      check("saved once", mock2.calls.filter((c) => c === "save_blocks").length === 1);
+      tab("Todo").click();
+      await sleep(10);
+      mock2.files.Todo = mock2.files.Todo.replace("- [ ] Drag me around\n", "- [ ] Drag me around\n- [ ]\n");
+      mock2.emit("todo:snapshot", mock2.snapshot());
+      await sleep(20);
+      check("snapshot with an empty item is cleaned and saved", !F.Todo.includes("- [ ]\n") && rows().length === 7);
+      await editRow(1, "Click a checkbox", "Enter");
+      check("new item open", q("#list .edit")?.value === "" && rows().length === 8);
+      tab("Work").click();
+      await sleep(20);
+      check("switching tabs drops the untouched new item", !F.Todo.includes("- [ ]\n"));
+      tab("Todo").click();
+      await sleep(10);
+      check("nothing left behind", rows().length === 7 && !F.Todo.includes("- [ ]\n"));
+      key("e", { metaKey: true });
+      await waitFor(() => !!window.__todo?.editor);
+      await sleep(30);
+      const ed = window.__todo.editor;
+      const view = ed.view;
+      view.dispatch({ changes: { from: view.state.doc.length, insert: "- [ ]\n- [ ]  \n" } });
+      await sleep(400);
+      check("markdown view keeps blank lines while editing", F.Todo.endsWith("- [ ]\n- [ ]  \n"));
+      key("e", { metaKey: true });
+      await sleep(30);
+      check("back in the list they are pruned and saved", !F.Todo.includes("- [ ]\n") && !F.Todo.includes("- [ ]  \n") && rows().length === 7);
     } },
     { name: "add box", async run({ F, check }) {
       await addTodo("From add box");
@@ -725,6 +758,81 @@
       await sleep(50);
       audit("markdown view");
     } },
+    { name: "tags", async run({ F, check }) {
+      await addTodo("Ship it [urgent] soon");
+      key("Escape", {}, q("#list .add"));
+      const row = rows()[rows().length - 1];
+      const badge2 = row.querySelector(".tag");
+      check("tag rendered as badge", !!badge2 && badge2.textContent === "urgent" && !badge2.classList.contains("deferred"));
+      check("text keeps the surrounding words", row.querySelector(".text").textContent === "Ship it urgent soon");
+      check("row not deferred", !row.classList.contains("deferred"));
+      check("brackets kept in the file", F.Todo.endsWith("- [ ] Ship it [urgent] soon\n"));
+      await addTodo("Call the bank [tomorrow]");
+      key("Escape", {}, q("#list .add"));
+      const later = rows()[rows().length - 1];
+      check("deferred badge grayed", later.querySelector(".tag")?.classList.contains("deferred") === true && later.classList.contains("deferred"));
+      const muted = getComputedStyle(document.documentElement).getPropertyValue("--muted").trim();
+      const rgb = (hex) => {
+        const n = parseInt(hex.slice(1), 16);
+        return `rgb(${n >> 16 & 255}, ${n >> 8 & 255}, ${n & 255})`;
+      };
+      check("deferred text muted", getComputedStyle(later.querySelector(".text")).color === rgb(muted));
+      check("badge pill styled", getComputedStyle(later.querySelector(".tag")).display === "inline-block");
+      check("deferred row faded", Number(getComputedStyle(later).opacity) < 0.5 && Number(getComputedStyle(rows()[rows().length - 2]).opacity) === 1);
+      later.querySelector(".text").click();
+      await sleep(10);
+      check("editing shows raw brackets", q("#list .edit")?.value === "Call the bank [tomorrow]");
+      const inp = q("#list .edit");
+      inp.value = "Call the bank [later]";
+      key("Escape", {}, inp);
+      await sleep(10);
+      await editRow(rows().length - 1, "Call the bank");
+      key("Escape", {}, q("#list .edit"));
+      await sleep(10);
+      check("removing the tag un-grays the row", !rows()[rows().length - 1].classList.contains("deferred") && !rows()[rows().length - 1].querySelector(".tag"));
+    } },
+    { name: "heading tags", async run({ F, check }) {
+      const before = rows().filter((r) => r.classList.contains("deferred")).length;
+      check("nothing parked to start", before === 0);
+      const later = qa("#list .heading").find((h) => h.textContent === "Later");
+      later.click();
+      await sleep(10);
+      const inp = q("#list .edit");
+      inp.value = "Later [later]";
+      key("Enter", {}, inp);
+      await sleep(10);
+      check("heading saved with the tag", F.Todo.includes("## Later [later]\n"));
+      const hd = qa("#list .heading").find((h) => h.classList.contains("h2"));
+      check("heading badge rendered", hd.querySelector(".tag")?.textContent === "later" && hd.classList.contains("deferred"));
+      check("heading text keeps words", hd.textContent === "Later later");
+      check("parked heading faded", Number(getComputedStyle(hd).opacity) < 0.5);
+      const parked = rows().filter((r) => r.classList.contains("deferred")).map((r) => r.querySelector(".text").textContent);
+      check("section tasks parked", parked.join("|") === "Nested parent|Nested child");
+      check("earlier tasks untouched", !rows()[0].classList.contains("deferred"));
+      await editRow(rows().length - 1, "Nested child [home]");
+      key("Escape", {}, q("#list .edit"));
+      await sleep(10);
+      const muted = getComputedStyle(document.documentElement).getPropertyValue("--muted").trim();
+      const rgb = (hex) => {
+        const n = parseInt(hex.slice(1), 16);
+        return `rgb(${n >> 16 & 255}, ${n >> 8 & 255}, ${n & 255})`;
+      };
+      check("ordinary tag inside a parked section is grayed too", getComputedStyle(rows()[rows().length - 1].querySelector(".tag")).color === rgb(muted));
+      check("note under heading muted", qa("#list .para")[0].classList.contains("deferred"));
+      await addTodo("# Fresh");
+      await addTodo("Active again");
+      key("Escape", {}, q("#list .add"));
+      const last = rows()[rows().length - 1];
+      check("same-level heading ends the parked section", last.querySelector(".text").textContent === "Active again" && !last.classList.contains("deferred"));
+      qa("#list .heading").find((h) => h.classList.contains("h2")).click();
+      await sleep(10);
+      check("editing heading shows raw brackets", q("#list .edit")?.value === "Later [later]");
+      const inp2 = q("#list .edit");
+      inp2.value = "Later";
+      key("Enter", {}, inp2);
+      await sleep(10);
+      check("untagging heading frees the section", rows().every((r) => !r.classList.contains("deferred")));
+    } },
     { name: "settings", async run({ mock: mock2, check }) {
       q("#settings-btn").click();
       await sleep(10);
@@ -801,6 +909,8 @@ ${e.stack ?? ""}`);
     mock.colors.Work = "#3e63dd";
     mock.colors.Todo = "#30a46c";
   }
+  if (qs.has("tags")) mock.files.Todo = "# Todo\n\n- [ ] Ship the release [urgent]\n- [ ] Review PR [work] [today]\n- [ ] Call the bank [tomorrow]\n- [x] Done thing [urgent]\n\n## Weekend [later]\n\n- [ ] Clean the garage [home]\n  - [ ] Sort the shelves\n\n## Next up [focus]\n\n- [ ] Write the changelog\n";
+  if (qs.has("light")) mock.config.appearance = "light";
   var badge = qs.get("badge");
   if (badge === "ratio" || badge === "percent" || badge === "remaining") mock.config.tabs.badge = badge;
   window.__TAURI__ = mock.global();

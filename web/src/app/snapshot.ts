@@ -1,6 +1,7 @@
 /** Saving files and applying snapshots that arrive from the backend. */
 import { renderList, updateCount } from './list.ts';
 import { getEditor, showEditorPane } from './editor.ts';
+import { pruneEmptyTasks } from './model.ts';
 import { el, file, S } from './state.ts';
 import { renderTabs } from './tabs.ts';
 import { invoke } from './tauri.ts';
@@ -37,6 +38,8 @@ export function refreshView(): void {
     editor.setValue(f?.raw ?? '');
     updateCount();
   } else {
+    // Empty `- [ ]` lines (left by an interrupted edit, or already in the file) are dropped as soon as the list is shown.
+    if (f && !S.editing && pruneEmptyTasks(f.blocks).length) { S.selected = null; void save(f); }
     renderList();
   }
 }

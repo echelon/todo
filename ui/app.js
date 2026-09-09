@@ -54,6 +54,35 @@
     if (isRuleText(text)) return { kind: "rule", text: text.trim() };
     return headingFromText(text) ?? { kind: "task", done: false, text, indent };
   }
+  var DEFERRED_TAGS = /* @__PURE__ */ new Set(["tomorrow", "later", "someday"]);
+  var isDeferredTag = (tag) => DEFERRED_TAGS.has(tag.trim().toLowerCase());
+  function splitTags(text) {
+    const out = [];
+    const re = /\[([^\[\]\n]{1,40})\]/g;
+    let last = 0;
+    for (let m = re.exec(text); m; m = re.exec(text)) {
+      const tag = m[1].trim();
+      if (!tag) continue;
+      if (m.index > last) out.push({ kind: "text", text: text.slice(last, m.index) });
+      out.push({ kind: "tag", tag, deferred: isDeferredTag(tag) });
+      last = m.index + m[0].length;
+    }
+    if (last < text.length) out.push({ kind: "text", text: text.slice(last) });
+    return out;
+  }
+  var isDeferred = (text) => splitTags(text).some((p) => p.kind === "tag" && p.deferred);
+  function deferredFlags(blocks) {
+    let sectionLevel = 0;
+    return blocks.map((b) => {
+      if (b.kind === "heading") {
+        if (sectionLevel && b.level <= sectionLevel) sectionLevel = 0;
+        if (!sectionLevel && isDeferred(b.text)) sectionLevel = b.level;
+        return sectionLevel > 0;
+      }
+      if (sectionLevel) return true;
+      return b.kind === "task" && isDeferred(b.text);
+    });
+  }
   function blocksToMarkdown(blocks) {
     return blocks.map((b) => {
       switch (b.kind) {
@@ -91,6 +120,21 @@
     const n = subtreeEnd(blocks, i) - i;
     blocks.splice(i, n);
     return n;
+  }
+  var isEmptyTask = (b) => b.kind === "task" && b.text.trim() === "";
+  function pruneEmptyTasks(blocks) {
+    const removed = [];
+    for (let i = 0, orig = 0; i < blocks.length; orig++) {
+      if (!isEmptyTask(blocks[i])) {
+        i++;
+        continue;
+      }
+      const end = subtreeEnd(blocks, i);
+      shiftLevels(blocks.slice(i + 1, end), -1);
+      blocks.splice(i, 1);
+      removed.push(orig);
+    }
+    return removed;
   }
   function pasteTarget(blocks, selected) {
     if (selected != null && blocks[selected]?.kind === "task") {
@@ -719,6 +763,10 @@
       editor2.setValue(f?.raw ?? "");
       updateCount();
     } else {
+      if (f && !S.editing && pruneEmptyTasks(f.blocks).length) {
+        S.selected = null;
+        void save(f);
+      }
       renderList();
     }
   }
@@ -792,15 +840,11 @@
     const b = f.blocks[e.i];
     const text = e.input.value.trim();
     let changed = text !== e.orig;
-    let removed = false;
     let newAfter = !!opts.newAfter;
     if (text === "") {
       if (b.kind === "task") {
-        if (e.isNew || e.orig === "") {
-          f.blocks.splice(e.i, 1);
-          removed = true;
-          changed = !e.isNew;
-        } else b.text = "";
+        b.text = "";
+        changed = !e.isNew;
       } else if (b.kind === "text") {
         f.blocks[e.i] = { kind: "blank" };
       } else {
@@ -813,12 +857,16 @@
     } else if (b.kind !== "blank" && b.kind !== "rule") {
       b.text = text;
     }
+    const pruned = pruneEmptyTasks(f.blocks);
+    const removed = pruned.includes(e.i);
+    if (pruned.length && !removed) changed = true;
+    const at = e.i - pruned.filter((r) => r < e.i).length;
     const indent = b.kind === "task" ? b.indent : "";
-    if (newAfter && !removed) f.blocks.splice(e.i + 1, 0, { kind: "task", done: false, text: "", indent });
+    if (newAfter && !removed) f.blocks.splice(at + 1, 0, { kind: "task", done: false, text: "", indent });
     renderList();
     if (changed) void save(f);
     if (newAfter && !removed) {
-      const next = rowAt(e.i + 1);
+      const next = rowAt(at + 1);
       if (next) {
         startEdit(next, true);
         next.scrollIntoView({ block: "nearest" });
@@ -839,15 +887,16 @@
 
   // src/app/list.ts
   var CHECK_SVG = '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6.5l2.6 2.6L10 3.5"/></svg>';
-  function blockEl(b, i) {
+  function blockEl(b, i, deferred = false) {
     let d;
+    const parked = deferred ? " deferred" : "";
     switch (b.kind) {
       case "heading":
-        d = div("block heading h" + b.level);
-        d.textContent = b.text;
+        d = div("block heading h" + b.level + parked);
+        renderTags(d, b.text);
         break;
       case "task": {
-        d = div("block task" + (b.done ? " done" : ""));
+        d = div("block task" + (b.done ? " done" : "") + parked);
         const lvl = levelOf(b);
         if (lvl) d.style.marginLeft = lvl * LEVEL_PX + "px";
         const c = document.createElement("button");
@@ -856,7 +905,7 @@
         c.title = "Toggle";
         const t = document.createElement("span");
         t.className = "text";
-        t.textContent = b.text || " ";
+        renderTags(t, b.text);
         const x = document.createElement("button");
         x.className = "del";
         x.textContent = "\u2715";
@@ -865,7 +914,7 @@
         break;
       }
       case "text":
-        d = div("block para");
+        d = div("block para" + parked);
         d.textContent = b.text;
         break;
       case "rule":
@@ -876,6 +925,24 @@
     }
     d.dataset.i = String(i);
     return d;
+  }
+  function renderTags(host, text) {
+    const parts = splitTags(text);
+    if (!parts.length) {
+      host.textContent = " ";
+      return;
+    }
+    for (const p of parts) {
+      if (p.kind === "text") {
+        host.append(p.text);
+        continue;
+      }
+      const tag = document.createElement("span");
+      tag.className = "tag" + (p.deferred ? " deferred" : "");
+      tag.textContent = p.tag;
+      tag.title = `[${p.tag}]`;
+      host.append(tag);
+    }
   }
   function addRow() {
     const d = div("add-row");
@@ -905,7 +972,8 @@
       return;
     }
     const frag = document.createDocumentFragment();
-    f.blocks.forEach((b, i) => frag.append(blockEl(b, i)));
+    const deferred = deferredFlags(f.blocks);
+    f.blocks.forEach((b, i) => frag.append(blockEl(b, i, deferred[i])));
     frag.append(addRow());
     const scroll = el.list.scrollTop;
     el.list.replaceChildren(frag);

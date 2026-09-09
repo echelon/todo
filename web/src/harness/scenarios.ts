@@ -84,10 +84,39 @@ export const scenarios: Scenario[] = [
     key('Escape', {}, q('#list .edit')!); await sleep(10);
     check('escape drops the empty new item', !q('#list .edit') && rows().length === 8);
     await editRow(0, '', 'Enter');
-    check('emptying an existing item keeps it as an empty task', F.Todo.includes('- [ ]\n- [ ] Click a checkbox!'));
-    check('enter still starts the next item', q<HTMLInputElement>('#list .edit')?.value === '' && rows().length === 9);
-    key('Escape', {}, q('#list .edit')!); await sleep(10);
-    check('escape drops it again', !q('#list .edit') && rows().length === 8);
+    check('emptying an existing item removes it', !F.Todo.includes('- [ ]\n') && F.Todo.includes('# Todo\n\n- [ ] Click a checkbox!') && !q('#list .edit') && rows().length === 7);
+    check('selection cleared with it', state().selected === null || rows()[state().selected!]?.classList.contains('task'));
+  } },
+
+  { name: 'empty items pruned', async run({ mock, F, check }) {
+    // Already in a file when we arrive at its tab: dropped and re-saved, children lifted a level.
+    F.Work = '# Work\n\n- [ ]\n- [ ] Ship the todo app\n- [ ]   \n  - [ ] Orphan\n\t- [ ]\n- [x] Write the core crate\n';
+    mock.emit('todo:snapshot', mock.snapshot()); await sleep(10);
+    check('inactive tab not touched yet', F.Work.includes('- [ ]\n') && mock.calls.filter((c) => c === 'save_blocks').length === 0);
+    tab('Work')!.click(); await sleep(20);
+    check('empty lines gone from the file', F.Work === '# Work\n\n- [ ] Ship the todo app\n- [ ] Orphan\n- [x] Write the core crate\n');
+    check('list matches', texts().join('|') === 'Ship the todo app|Orphan|Write the core crate' && rows().every((r) => r.style.marginLeft === ''));
+    check('saved once', mock.calls.filter((c) => c === 'save_blocks').length === 1);
+    // A snapshot from the backend (e.g. the file edited outside the app) is pruned the same way.
+    tab('Todo')!.click(); await sleep(10);
+    mock.files.Todo = mock.files.Todo.replace('- [ ] Drag me around\n', '- [ ] Drag me around\n- [ ]\n');
+    mock.emit('todo:snapshot', mock.snapshot()); await sleep(20);
+    check('snapshot with an empty item is cleaned and saved', !F.Todo.includes('- [ ]\n') && rows().length === 7);
+    // Enter leaves a fresh empty item open; anything that ends the edit removes it.
+    await editRow(1, 'Click a checkbox', 'Enter');
+    check('new item open', q<HTMLInputElement>('#list .edit')?.value === '' && rows().length === 8);
+    tab('Work')!.click(); await sleep(20);
+    check('switching tabs drops the untouched new item', !F.Todo.includes('- [ ]\n'));
+    tab('Todo')!.click(); await sleep(10);
+    check('nothing left behind', rows().length === 7 && !F.Todo.includes('- [ ]\n'));
+    // Markdown view is left alone while typing; the rendered view cleans up afterwards.
+    key('e', { metaKey: true }); await waitFor(() => !!window.__todo?.editor); await sleep(30);
+    const ed = window.__todo!.editor!;
+    const view = ed.view as { state: { doc: { length: number } }; dispatch(tr: { changes: { from: number; insert: string } }): void };
+    view.dispatch({ changes: { from: view.state.doc.length, insert: '- [ ]\n- [ ]  \n' } }); await sleep(400);
+    check('markdown view keeps blank lines while editing', F.Todo.endsWith('- [ ]\n- [ ]  \n'));
+    key('e', { metaKey: true }); await sleep(30);
+    check('back in the list they are pruned and saved', !F.Todo.includes('- [ ]\n') && !F.Todo.includes('- [ ]  \n') && rows().length === 7);
   } },
 
   { name: 'add box', async run({ F, check }) {
@@ -399,6 +428,61 @@ export const scenarios: Scenario[] = [
     audit('light theme');
     key('e', { metaKey: true }); await waitFor(() => !!window.__todo?.editor); await sleep(50);
     audit('markdown view');
+  } },
+
+  { name: 'tags', async run({ F, check }) {
+    await addTodo('Ship it [urgent] soon');
+    key('Escape', {}, q('#list .add')!);
+    const row = rows()[rows().length - 1];
+    const badge = row.querySelector<HTMLElement>('.tag');
+    check('tag rendered as badge', !!badge && badge.textContent === 'urgent' && !badge.classList.contains('deferred'));
+    check('text keeps the surrounding words', row.querySelector('.text')!.textContent === 'Ship it urgent soon');
+    check('row not deferred', !row.classList.contains('deferred'));
+    check('brackets kept in the file', F.Todo.endsWith('- [ ] Ship it [urgent] soon\n'));
+    await addTodo('Call the bank [tomorrow]');
+    key('Escape', {}, q('#list .add')!);
+    const later = rows()[rows().length - 1];
+    check('deferred badge grayed', later.querySelector('.tag')?.classList.contains('deferred') === true && later.classList.contains('deferred'));
+    const muted = getComputedStyle(document.documentElement).getPropertyValue('--muted').trim();
+    const rgb = (hex: string) => { const n = parseInt(hex.slice(1), 16); return `rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`; };
+    check('deferred text muted', getComputedStyle(later.querySelector('.text')!).color === rgb(muted));
+    check('badge pill styled', getComputedStyle(later.querySelector('.tag')!).display === 'inline-block');
+    check('deferred row faded', Number(getComputedStyle(later).opacity) < 0.5 && Number(getComputedStyle(rows()[rows().length - 2]).opacity) === 1);
+    later.querySelector<HTMLElement>('.text')!.click(); await sleep(10);
+    check('editing shows raw brackets', q<HTMLInputElement>('#list .edit')?.value === 'Call the bank [tomorrow]');
+    const inp = q<HTMLInputElement>('#list .edit')!; inp.value = 'Call the bank [later]'; key('Escape', {}, inp); await sleep(10);
+    await editRow(rows().length - 1, 'Call the bank'); key('Escape', {}, q('#list .edit')!); await sleep(10);
+    check('removing the tag un-grays the row', !rows()[rows().length - 1].classList.contains('deferred') && !rows()[rows().length - 1].querySelector('.tag'));
+  } },
+
+  { name: 'heading tags', async run({ F, check }) {
+    const before = rows().filter((r) => r.classList.contains('deferred')).length;
+    check('nothing parked to start', before === 0);
+    // "## Later" is the second heading in the fixture; tag it and the two nested tasks below should gray out.
+    const later = qa('#list .heading').find((h) => h.textContent === 'Later')!;
+    later.click(); await sleep(10);
+    const inp = q<HTMLInputElement>('#list .edit')!; inp.value = 'Later [later]'; key('Enter', {}, inp); await sleep(10);
+    check('heading saved with the tag', F.Todo.includes('## Later [later]\n'));
+    const hd = qa('#list .heading').find((h) => h.classList.contains('h2'))!;
+    check('heading badge rendered', hd.querySelector('.tag')?.textContent === 'later' && hd.classList.contains('deferred'));
+    check('heading text keeps words', hd.textContent === 'Later later');
+    check('parked heading faded', Number(getComputedStyle(hd).opacity) < 0.5);
+    const parked = rows().filter((r) => r.classList.contains('deferred')).map((r) => r.querySelector('.text')!.textContent);
+    check('section tasks parked', parked.join('|') === 'Nested parent|Nested child');
+    check('earlier tasks untouched', !rows()[0].classList.contains('deferred'));
+    await editRow(rows().length - 1, 'Nested child [home]'); key('Escape', {}, q('#list .edit')!); await sleep(10);
+    const muted = getComputedStyle(document.documentElement).getPropertyValue('--muted').trim();
+    const rgb = (hex: string) => { const n = parseInt(hex.slice(1), 16); return `rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`; };
+    check('ordinary tag inside a parked section is grayed too', getComputedStyle(rows()[rows().length - 1].querySelector('.tag')!).color === rgb(muted));
+    check('note under heading muted', qa('#list .para')[0].classList.contains('deferred'));
+    await addTodo('# Fresh'); await addTodo('Active again');
+    key('Escape', {}, q('#list .add')!);
+    const last = rows()[rows().length - 1];
+    check('same-level heading ends the parked section', last.querySelector('.text')!.textContent === 'Active again' && !last.classList.contains('deferred'));
+    qa('#list .heading').find((h) => h.classList.contains('h2'))!.click(); await sleep(10);
+    check('editing heading shows raw brackets', q<HTMLInputElement>('#list .edit')?.value === 'Later [later]');
+    const inp2 = q<HTMLInputElement>('#list .edit')!; inp2.value = 'Later'; key('Enter', {}, inp2); await sleep(10);
+    check('untagging heading frees the section', rows().every((r) => !r.classList.contains('deferred')));
   } },
 
   { name: 'settings', async run({ mock, check }) {

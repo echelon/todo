@@ -1,6 +1,6 @@
 /** Inline editing of a row: click to edit, Enter for the next item, Tab to nest. */
 import { renderList } from './list.ts';
-import { blockFromTyped, headingFromText, isRuleText, LEVEL_PX, levelOf, prevTaskLevel, setLevel, subtreeEnd } from './model.ts';
+import { blockFromTyped, headingFromText, isRuleText, LEVEL_PX, levelOf, prevTaskLevel, pruneEmptyTasks, setLevel, subtreeEnd } from './model.ts';
 import { flushPending, save } from './snapshot.ts';
 import { blockIndex, file, rowAt, S } from './state.ts';
 
@@ -47,13 +47,10 @@ export function commitEdit(opts: { newAfter?: boolean } = {}): void {
   const b = f.blocks[e.i];
   const text = e.input.value.trim();
   let changed = text !== e.orig;
-  let removed = false;
   let newAfter = !!opts.newAfter;
   if (text === '') {
-    if (b.kind === 'task') {
-      if (e.isNew || e.orig === '') { f.blocks.splice(e.i, 1); removed = true; changed = !e.isNew; }
-      else b.text = '';
-    } else if (b.kind === 'text') { f.blocks[e.i] = { kind: 'blank' }; }
+    if (b.kind === 'task') { b.text = ''; changed = !e.isNew; } // pruned below
+    else if (b.kind === 'text') { f.blocks[e.i] = { kind: 'blank' }; }
     else { changed = false; } // headings keep their previous text
   } else if (b.kind === 'task' && (isRuleText(text) || headingFromText(text))) {
     f.blocks[e.i] = blockFromTyped(text, b.indent);
@@ -62,12 +59,17 @@ export function commitEdit(opts: { newAfter?: boolean } = {}): void {
   } else if (b.kind !== 'blank' && b.kind !== 'rule') {
     b.text = text;
   }
+  // Typing has stopped: every empty `- [ ]` goes, this one included if it was left blank.
+  const pruned = pruneEmptyTasks(f.blocks);
+  const removed = pruned.includes(e.i);
+  if (pruned.length && !removed) changed = true;
+  const at = e.i - pruned.filter((r) => r < e.i).length; // where the edited block now sits
   const indent = b.kind === 'task' ? b.indent : '';
-  if (newAfter && !removed) f.blocks.splice(e.i + 1, 0, { kind: 'task', done: false, text: '', indent });
+  if (newAfter && !removed) f.blocks.splice(at + 1, 0, { kind: 'task', done: false, text: '', indent });
   renderList();
   if (changed) void save(f);
   if (newAfter && !removed) {
-    const next = rowAt(e.i + 1);
+    const next = rowAt(at + 1);
     if (next) { startEdit(next, true); next.scrollIntoView({ block: 'nearest' }); }
     return; // keep the pending snapshot queued while the new item is being typed
   }
