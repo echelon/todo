@@ -148,6 +148,7 @@ export class MockBackend {
         return this.cfgPayload() as Commands[K][1];
       }
       case 'get_window_side': return this.side as Commands[K][1];
+      case 'is_window_focused': return true as Commands[K][1];
       case 'mirror_window': this.side = this.side === 'left' ? 'right' : 'left'; return this.side as Commands[K][1];
       case 'log': console.log('[ui]', (a as { msg: string }).msg); return undefined as Commands[K][1];
       case 'window_ready': case 'hide_window': case 'open_config': case 'open_todo_dir': case 'quit':

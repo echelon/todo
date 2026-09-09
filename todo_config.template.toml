@@ -32,6 +32,8 @@ inactive_opacity_enabled = false
 inactive_opacity = 0.5
 # Float above all other windows.
 always_on_top = false
+# Size on the very first launch. After that the app remembers where it was and
+# how big it was (in ~/.todo_state.toml).
 width = 380.0
 height = 540.0
 corner_radius = 12.0

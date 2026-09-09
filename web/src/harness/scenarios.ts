@@ -334,6 +334,14 @@ export const scenarios: Scenario[] = [
     check('leaving fades again', opacity() === '0.5');
     mock.emit('todo:focus', true); await sleep(5);
     check('focus restores', opacity() === '0.92');
+    // The bug: hover bookkeeping went stale (no mouseleave after a native drag), then focus was lost.
+    document.documentElement.dispatchEvent(new MouseEvent('mouseenter')); await sleep(5);
+    mock.emit('todo:focus', false); await sleep(5);
+    check('losing focus fades even with a stale hover flag', opacity() === '0.5' && !state().hovered);
+    // Same staleness, but corrected by the periodic reconcile instead of a focus event.
+    state().hovered = true; document.documentElement.style.setProperty('--opacity', '0.92'); await sleep(1100);
+    check('periodic reconcile catches a stale hover', opacity() === '0.5');
+    mock.emit('todo:focus', true); await sleep(5);
     const slider = q<HTMLInputElement>('#s-fade-opacity')!; slider.value = '0.3'; slider.dispatchEvent(new Event('input')); await sleep(260);
     mock.emit('todo:focus', false); await sleep(5);
     check('custom faded opacity persisted and applied', mock.config.window.inactive_opacity === 0.3 && opacity() === '0.3');
@@ -354,6 +362,43 @@ export const scenarios: Scenario[] = [
     check('cmd+shift+arrow mirrors too', mock.side === 'right');
     mock.emit('todo:moved', 'left'); await sleep(5);
     check('dragging the window elsewhere updates the icon', btn.dataset.target === 'right');
+  } },
+
+  { name: 'nothing stays opaque when the window is translucent', active: 'Work', async run({ mock, check }) {
+    // Alpha of a computed color: rgb()/rgba(), or color(srgb r g b / a) / oklab(... / a) as Chrome reports color-mix().
+    const alphaOf = (c: string): number => {
+      if (c === 'transparent' || c === 'rgba(0, 0, 0, 0)') return 0;
+      const slash = /\/\s*([\d.]+%?)\s*\)/.exec(c);
+      if (slash) return slash[1].endsWith('%') ? parseFloat(slash[1]) / 100 : parseFloat(slash[1]);
+      const m = /rgba?\(([^)]+)\)/.exec(c); if (!m) return 1;
+      const parts = m[1].split(/[\s,]+/).filter(Boolean);
+      return parts.length >= 4 ? parseFloat(parts[3]) : 1;
+    };
+    const audit = (label: string): void => {
+      const opaque: string[] = [];
+      for (const e of qa('#app *')) {
+        if (e.closest('.check, .swatch, .toast, .ring, .md-host, svg')) continue; // small controls / transient / editor internals
+        const a = alphaOf(getComputedStyle(e).backgroundColor);
+        if (a >= 1) opaque.push(`${e.tagName.toLowerCase()}${e.id ? '#' + e.id : ''}.${[...e.classList].join('.')}`);
+      }
+      check(`${label}: no opaque backgrounds (${opaque.slice(0, 4).join(' ') || 'ok'})`, opaque.length === 0);
+      check(`${label}: app itself is translucent`, alphaOf(getComputedStyle(q('#app')!).backgroundColor) < 1);
+    };
+    // A colored active tab, a selected + hovered row, a menu, the settings popover and a dialog.
+    mock.colors.Work = '#3e63dd'; mock.emit('todo:snapshot', mock.snapshot()); await sleep(10);
+    rows()[0].click(); await sleep(5);
+    audit('list view (dark theme)');
+    mouse('contextmenu', rows()[0]); await sleep(10);
+    q('#settings-btn')!.click(); await sleep(10);
+    audit('menus open');
+    key('Escape'); key('Escape'); await sleep(5);
+    qa('#list .task .del')[0].click(); await sleep(10);
+    audit('confirm dialog');
+    q('#modal-cancel')!.click(); await sleep(5);
+    const sel = q<HTMLSelectElement>('#s-appearance')!; sel.value = 'light'; sel.dispatchEvent(new Event('change')); await sleep(10);
+    audit('light theme');
+    key('e', { metaKey: true }); await waitFor(() => !!window.__todo?.editor); await sleep(50);
+    audit('markdown view');
   } },
 
   { name: 'settings', async run({ mock, check }) {

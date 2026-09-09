@@ -16,6 +16,7 @@ export interface Commands {
   window_ready: [void, void];
   hide_window: [void, void];
   get_window_side: [void, Side | null];
+  is_window_focused: [void, boolean];
   mirror_window: [void, Side];
   open_config: [void, void];
   open_todo_dir: [void, void];

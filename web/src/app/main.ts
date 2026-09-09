@@ -7,7 +7,7 @@ import { fillSchemes, syncSettingsUI } from './settings.ts';
 import { applySnapshot } from './snapshot.ts';
 import { el, S } from './state.ts';
 import { invoke, listen, reportError } from './tauri.ts';
-import { applyTheme, setFocused } from './theme.ts';
+import { applyTheme, reconcileHover, setFocused } from './theme.ts';
 import type { ConfigPayload, Side, Snapshot } from './types.ts';
 import { closeCtx, toast } from './ui.ts';
 import { initSide, setSide } from './window.ts';
@@ -64,8 +64,10 @@ async function init(): Promise<void> {
     await listen<ConfigPayload>('todo:config', (p) => { S.cfg = p; applyTheme(); syncSettingsUI(); });
     await listen<string>('todo:error', (p) => toast(p));
     await listen<boolean>('todo:focus', (focused) => setFocused(focused));
-    await listen<Side>('todo:moved', (side) => setSide(side));
+    await listen<Side>('todo:moved', (side) => { setSide(side); reconcileHover(); });
     await initSide();
+    // The window may already be unfocused (e.g. launched from the tray behind another app).
+    try { setFocused(await invoke('is_window_focused')); } catch { /* keep the default */ }
   } catch (e) {
     toast(e);
   }

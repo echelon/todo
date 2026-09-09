@@ -169,6 +169,8 @@
         }
         case "get_window_side":
           return this.side;
+        case "is_window_focused":
+          return true;
         case "mirror_window":
           this.side = this.side === "left" ? "right" : "left";
           return this.side;
@@ -633,6 +635,17 @@
       mock2.emit("todo:focus", true);
       await sleep(5);
       check("focus restores", opacity() === "0.92");
+      document.documentElement.dispatchEvent(new MouseEvent("mouseenter"));
+      await sleep(5);
+      mock2.emit("todo:focus", false);
+      await sleep(5);
+      check("losing focus fades even with a stale hover flag", opacity() === "0.5" && !state().hovered);
+      state().hovered = true;
+      document.documentElement.style.setProperty("--opacity", "0.92");
+      await sleep(1100);
+      check("periodic reconcile catches a stale hover", opacity() === "0.5");
+      mock2.emit("todo:focus", true);
+      await sleep(5);
       const slider = q("#s-fade-opacity");
       slider.value = "0.3";
       slider.dispatchEvent(new Event("input"));
@@ -662,6 +675,55 @@
       mock2.emit("todo:moved", "left");
       await sleep(5);
       check("dragging the window elsewhere updates the icon", btn.dataset.target === "right");
+    } },
+    { name: "nothing stays opaque when the window is translucent", active: "Work", async run({ mock: mock2, check }) {
+      const alphaOf = (c) => {
+        if (c === "transparent" || c === "rgba(0, 0, 0, 0)") return 0;
+        const slash = /\/\s*([\d.]+%?)\s*\)/.exec(c);
+        if (slash) return slash[1].endsWith("%") ? parseFloat(slash[1]) / 100 : parseFloat(slash[1]);
+        const m = /rgba?\(([^)]+)\)/.exec(c);
+        if (!m) return 1;
+        const parts = m[1].split(/[\s,]+/).filter(Boolean);
+        return parts.length >= 4 ? parseFloat(parts[3]) : 1;
+      };
+      const audit = (label) => {
+        const opaque = [];
+        for (const e of qa("#app *")) {
+          if (e.closest(".check, .swatch, .toast, .ring, .md-host, svg")) continue;
+          const a = alphaOf(getComputedStyle(e).backgroundColor);
+          if (a >= 1) opaque.push(`${e.tagName.toLowerCase()}${e.id ? "#" + e.id : ""}.${[...e.classList].join(".")}`);
+        }
+        check(`${label}: no opaque backgrounds (${opaque.slice(0, 4).join(" ") || "ok"})`, opaque.length === 0);
+        check(`${label}: app itself is translucent`, alphaOf(getComputedStyle(q("#app")).backgroundColor) < 1);
+      };
+      mock2.colors.Work = "#3e63dd";
+      mock2.emit("todo:snapshot", mock2.snapshot());
+      await sleep(10);
+      rows()[0].click();
+      await sleep(5);
+      audit("list view (dark theme)");
+      mouse("contextmenu", rows()[0]);
+      await sleep(10);
+      q("#settings-btn").click();
+      await sleep(10);
+      audit("menus open");
+      key("Escape");
+      key("Escape");
+      await sleep(5);
+      qa("#list .task .del")[0].click();
+      await sleep(10);
+      audit("confirm dialog");
+      q("#modal-cancel").click();
+      await sleep(5);
+      const sel = q("#s-appearance");
+      sel.value = "light";
+      sel.dispatchEvent(new Event("change"));
+      await sleep(10);
+      audit("light theme");
+      key("e", { metaKey: true });
+      await waitFor(() => !!window.__todo?.editor);
+      await sleep(50);
+      audit("markdown view");
     } },
     { name: "settings", async run({ mock: mock2, check }) {
       q("#settings-btn").click();

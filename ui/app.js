@@ -1328,6 +1328,8 @@
     for (const k of ["bg", "surface", "fg", "muted", "accent", "border", "danger"]) r.setProperty("--" + k, p[k]);
     r.setProperty("--accent-fg", p.accent_fg);
     r.setProperty("--bg-rgb", hexToRgb(p.bg));
+    r.setProperty("--surface-rgb", hexToRgb(p.surface));
+    r.setProperty("--fg-rgb", hexToRgb(p.fg));
     applyOpacity();
     r.setProperty("--radius", c.window.corner_radius + "px");
     r.setProperty("--font-size", c.font_size + "px");
@@ -1340,18 +1342,35 @@
     const o = effectiveOpacity(S.cfg.config.window, S.focused, S.hovered);
     document.documentElement.style.setProperty("--opacity", String(o));
   }
+  function pointerOver() {
+    try {
+      return document.documentElement.matches(":hover");
+    } catch {
+      return false;
+    }
+  }
   function setFocused(focused) {
     S.focused = focused;
+    S.hovered = pointerOver();
     applyOpacity();
   }
   function setHovered(hovered) {
+    if (S.hovered === hovered) return;
     S.hovered = hovered;
     applyOpacity();
   }
+  function reconcileHover() {
+    setHovered(pointerOver());
+  }
   document.documentElement.addEventListener("mouseenter", () => setHovered(true));
   document.documentElement.addEventListener("mouseleave", () => setHovered(false));
+  document.addEventListener("pointermove", () => setHovered(true), { passive: true });
   window.addEventListener("focus", () => setFocused(true));
   window.addEventListener("blur", () => setFocused(false));
+  document.addEventListener("visibilitychange", reconcileHover);
+  setInterval(() => {
+    if (S.cfg?.config.window.inactive_opacity_enabled && !S.focused) reconcileHover();
+  }, 1e3);
 
   // src/app/settings.ts
   function fillSchemes() {
@@ -1632,8 +1651,15 @@
       });
       await listen("todo:error", (p) => toast(p));
       await listen("todo:focus", (focused) => setFocused(focused));
-      await listen("todo:moved", (side) => setSide(side));
+      await listen("todo:moved", (side) => {
+        setSide(side);
+        reconcileHover();
+      });
       await initSide();
+      try {
+        setFocused(await invoke("is_window_focused"));
+      } catch {
+      }
     } catch (e) {
       toast(e);
     }

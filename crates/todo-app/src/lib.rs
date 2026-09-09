@@ -2,6 +2,7 @@
 //! global shortcut and window management.
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Mutex};
 use std::time::{Duration, SystemTime};
 
@@ -13,7 +14,7 @@ use tauri::{AppHandle, Emitter, LogicalSize, Manager, State, WebviewWindow, Wry}
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 use todo_core::{
     Appearance, Block, ColorScheme, Config, Palette, Snapshot, Store, SyncPoller, TabBadge,
-    TabOverflow,
+    TabOverflow, WindowState,
 };
 
 const MAIN: &str = "main";
@@ -33,6 +34,72 @@ pub struct AppState {
     store: Mutex<Store>,
     config: Mutex<Config>,
     config_mtime: Mutex<Option<SystemTime>>,
+    /// Latest window geometry, written to `~/.todo_state.toml` at most once a second.
+    window_state: Mutex<Option<WindowState>>,
+    window_dirty: AtomicBool,
+}
+
+/// Remember the window's current geometry (saved later by `flush_window_state`).
+fn note_window_geometry(app: &AppHandle) {
+    let Some(w) = app.get_webview_window(MAIN) else {
+        return;
+    };
+    let (Ok(pos), Ok(size)) = (w.outer_position(), w.outer_size()) else {
+        return;
+    };
+    if size.width == 0 || size.height == 0 || !w.is_visible().unwrap_or(false) {
+        return;
+    }
+    let state = app.state::<AppState>();
+    *state.window_state.lock().unwrap() = Some(WindowState {
+        x: pos.x,
+        y: pos.y,
+        width: size.width,
+        height: size.height,
+    });
+    state.window_dirty.store(true, Ordering::Relaxed);
+}
+
+fn flush_window_state(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    if !state.window_dirty.swap(false, Ordering::Relaxed) {
+        return;
+    }
+    let saved = *state.window_state.lock().unwrap();
+    if let Some(ws) = saved {
+        if let Err(e) = ws.save() {
+            eprintln!("could not save window state: {e}");
+        }
+    }
+}
+
+/// Put the window where it was last time, if that spot is still on a screen;
+/// otherwise use the configured size, centered.
+fn restore_window(app: &tauri::App, cfg: &Config) {
+    let Some(w) = app.get_webview_window(MAIN) else {
+        return;
+    };
+    let monitors: Vec<(i32, i32, u32, u32)> = app
+        .available_monitors()
+        .unwrap_or_default()
+        .iter()
+        .map(|m| {
+            (
+                m.position().x,
+                m.position().y,
+                m.size().width,
+                m.size().height,
+            )
+        })
+        .collect();
+    if let Some(ws) = WindowState::load().filter(|ws| ws.visible_on(&monitors)) {
+        let _ = w.set_size(tauri::PhysicalSize::new(ws.width, ws.height));
+        let _ = w.set_position(tauri::PhysicalPosition::new(ws.x, ws.y));
+        *app.state::<AppState>().window_state.lock().unwrap() = Some(ws);
+    } else {
+        let _ = w.set_size(LogicalSize::new(cfg.window.width, cfg.window.height));
+        let _ = w.center();
+    }
 }
 
 struct TrayItems {
@@ -285,6 +352,13 @@ fn current_side(w: &WebviewWindow) -> Option<Side> {
 }
 
 #[tauri::command]
+fn is_window_focused(app: AppHandle) -> bool {
+    app.get_webview_window(MAIN)
+        .and_then(|w| w.is_focused().ok())
+        .unwrap_or(true)
+}
+
+#[tauri::command]
 fn get_window_side(app: AppHandle) -> Option<Side> {
     app.get_webview_window(MAIN).and_then(|w| current_side(&w))
 }
@@ -338,6 +412,7 @@ fn log(msg: String) {
 
 #[tauri::command]
 fn quit(app: AppHandle) {
+    flush_window_state(&app);
     app.exit(0);
 }
 
@@ -375,6 +450,7 @@ fn show_window(w: &WebviewWindow) {
     let _ = w.show();
     let _ = w.unminimize();
     let _ = w.set_focus();
+    let _ = w.emit(EV_FOCUS, true);
 }
 
 /// Tray click / global hotkey: hide if focused, otherwise bring to front on
@@ -515,6 +591,7 @@ fn spawn_watcher(app: AppHandle) {
                 if let Some(snap) = outcome.snapshot {
                     let _ = app.emit(EV_SNAPSHOT, snap);
                 }
+                flush_window_state(&app);
             }
         })
         .expect("spawn watcher thread");
@@ -586,7 +663,10 @@ fn build_tray(app: &tauri::App, cfg: &Config) -> tauri::Result<()> {
             "open_dir" => {
                 let _ = open_todo_dir(app.state::<AppState>());
             }
-            "quit" => app.exit(0),
+            "quit" => {
+                flush_window_state(app);
+                app.exit(0)
+            }
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {
@@ -615,6 +695,8 @@ pub fn run() {
         store: Mutex::new(store),
         config: Mutex::new(config),
         config_mtime: Mutex::new(config_mtime()),
+        window_state: Mutex::new(None),
+        window_dirty: AtomicBool::new(false),
     };
 
     tauri::Builder::default()
@@ -634,6 +716,7 @@ pub fn run() {
             window_ready,
             hide_window,
             get_window_side,
+            is_window_focused,
             mirror_window,
             open_config,
             open_todo_dir,
@@ -648,10 +731,7 @@ pub fn run() {
                 app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             }
 
-            if let Some(w) = app.get_webview_window(MAIN) {
-                let _ = w.set_size(LogicalSize::new(cfg.window.width, cfg.window.height));
-                let _ = w.center();
-            }
+            restore_window(app, &cfg);
             build_tray(app, &cfg)?;
             apply_window_config(app.handle(), &cfg);
             spawn_watcher(app.handle().clone());
@@ -666,6 +746,7 @@ pub fn run() {
                     .unwrap()
                     .tray
                     .close_to_tray;
+                flush_window_state(window.app_handle());
                 if close_to_tray {
                     api.prevent_close();
                     let _ = window.hide();
@@ -674,7 +755,9 @@ pub fn run() {
             tauri::WindowEvent::Focused(focused) => {
                 let _ = window.emit(EV_FOCUS, *focused);
             }
+            tauri::WindowEvent::Resized(_) => note_window_geometry(window.app_handle()),
             tauri::WindowEvent::Moved(_) => {
+                note_window_geometry(window.app_handle());
                 if let Some(side) = window
                     .app_handle()
                     .get_webview_window(MAIN)

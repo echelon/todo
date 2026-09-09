@@ -288,6 +288,74 @@ impl Config {
     }
 }
 
+pub const STATE_FILE_NAME: &str = ".todo_state.toml";
+
+/// Runtime state that is remembered between launches but is not a setting:
+/// where the window was and how big it was (physical pixels).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct WindowState {
+    pub x: i32,
+    pub y: i32,
+    pub width: u32,
+    pub height: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(default)]
+struct StateFile {
+    window: Option<WindowState>,
+}
+
+impl WindowState {
+    /// `~/.todo_state.toml`
+    pub fn path() -> Result<PathBuf> {
+        Ok(dirs::home_dir().ok_or(Error::NoHome)?.join(STATE_FILE_NAME))
+    }
+
+    /// The saved state, or `None` if the file is missing, unreadable or corrupt.
+    pub fn load() -> Option<WindowState> {
+        Self::load_from(&Self::path().ok()?)
+    }
+
+    pub fn load_from(path: &Path) -> Option<WindowState> {
+        let text = std::fs::read_to_string(path).ok()?;
+        Self::parse(&text)
+    }
+
+    pub fn parse(text: &str) -> Option<WindowState> {
+        let f: StateFile = toml::from_str(text).ok()?;
+        f.window.filter(|w| w.width > 0 && w.height > 0)
+    }
+
+    pub fn save(&self) -> Result<()> {
+        self.save_to(&Self::path()?)
+    }
+
+    pub fn save_to(&self, path: &Path) -> Result<()> {
+        let text = format!(
+            "# Remembered by the Todo app (window position and size). Safe to delete.\n{}",
+            toml::to_string(&StateFile {
+                window: Some(*self)
+            })
+            .unwrap_or_default()
+        );
+        crate::store::atomic_write(path, &text)
+    }
+
+    /// Whether at least part of this window would be visible on one of the
+    /// given monitor rectangles `(x, y, width, height)` — enough of it to grab.
+    pub fn visible_on(&self, monitors: &[(i32, i32, u32, u32)]) -> bool {
+        const GRAB: i32 = 40;
+        monitors.iter().any(|&(mx, my, mw, mh)| {
+            let (mr, mb) = (mx + mw as i32, my + mh as i32);
+            let (wr, wb) = (self.x + self.width as i32, self.y + self.height as i32);
+            let overlap_w = wr.min(mr) - self.x.max(mx);
+            let overlap_h = wb.min(mb) - self.y.max(my);
+            overlap_w >= GRAB && overlap_h >= GRAB
+        })
+    }
+}
+
 pub fn expand_tilde(p: &Path) -> PathBuf {
     let s = p.to_string_lossy();
     if let Some(rest) = s.strip_prefix("~/") {
@@ -412,6 +480,58 @@ mod tests {
             .unwrap()
             .starts_with("# ~/.todo_config.toml"));
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn window_state_round_trips_and_tolerates_garbage() {
+        let dir = std::env::temp_dir().join(format!("todo-core-ws-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("state.toml");
+        assert_eq!(WindowState::load_from(&path), None, "missing file");
+        let w = WindowState {
+            x: -12,
+            y: 40,
+            width: 380,
+            height: 540,
+        };
+        w.save_to(&path).unwrap();
+        assert_eq!(WindowState::load_from(&path), Some(w));
+        assert!(std::fs::read_to_string(&path)
+            .unwrap()
+            .starts_with("# Remembered"));
+        std::fs::write(&path, "[window\nx = ").unwrap();
+        assert_eq!(WindowState::load_from(&path), None, "corrupt file");
+        std::fs::write(&path, "[window]\nx = 1\ny = 2\nwidth = 0\nheight = 10\n").unwrap();
+        assert_eq!(WindowState::load_from(&path), None, "zero size is rejected");
+        assert_eq!(WindowState::parse("other = 1"), None);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn window_state_visibility_on_monitors() {
+        let mons = [(0, 0, 1920, 1080), (1920, 0, 2560, 1440)];
+        let w = |x, y| WindowState {
+            x,
+            y,
+            width: 380,
+            height: 540,
+        };
+        assert!(w(25, 30).visible_on(&mons));
+        assert!(
+            w(1920 + 2560 - 380 - 25, 100).visible_on(&mons),
+            "right edge of second monitor"
+        );
+        assert!(
+            w(-300, 30).visible_on(&mons),
+            "mostly off the left but still grabbable"
+        );
+        assert!(!w(-350, 30).visible_on(&mons), "only 30px on screen");
+        assert!(!w(5000, 30).visible_on(&mons), "unplugged monitor");
+        assert!(
+            !w(100, -520).visible_on(&mons),
+            "only 20px of the bottom visible"
+        );
+        assert!(!w(0, 0).visible_on(&[]));
     }
 
     #[test]

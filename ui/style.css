@@ -1,6 +1,13 @@
 :root {
   --bg: #0b1220; --bg-rgb: 11, 18, 32; --surface: #141d31; --fg: #dbe4f3; --muted: #7f8fae;
   --accent: #5b9dff; --accent-fg: #04101f; --border: #22304c; --danger: #ff6b6b;
+  --surface-rgb: 20, 29, 49; --fg-rgb: 219, 228, 243;
+  /* Translucent fills so nothing stays solid when the window is see-through:
+     tints for hover/active states, and alpha-scaled panels for popovers. */
+  --tint: rgba(var(--fg-rgb), 0.08);
+  --tint-strong: rgba(var(--fg-rgb), 0.14);
+  --panel: rgba(var(--bg-rgb), var(--opacity));
+  --panel-raised: rgba(var(--surface-rgb), var(--opacity));
   --opacity: 0.92; --radius: 12px; --font-size: 14px;
   --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
@@ -14,7 +21,7 @@ body {
 }
 input, textarea { user-select: text; -webkit-user-select: text; }
 button { font: inherit; color: inherit; cursor: pointer; }
-kbd { font-family: var(--mono); background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; font-size: .85em; }
+kbd { font-family: var(--mono); background: var(--tint); border: 1px solid var(--border); border-radius: 4px; padding: 0 4px; font-size: .85em; }
 
 .app {
   position: absolute; inset: 0; display: flex; flex-direction: column;
@@ -35,8 +42,8 @@ kbd { font-family: var(--mono); background: var(--surface); border: 1px solid va
   border: none; background: transparent; color: var(--muted); padding: 3px 9px; border-radius: 6px;
   font-size: .92em; white-space: nowrap; flex-shrink: 0; max-width: 160px; overflow: hidden; text-overflow: ellipsis;
 }
-.tab:hover { background: var(--surface); color: var(--fg); }
-.tab.active { background: var(--surface); color: var(--fg); font-weight: 600; }
+.tab:hover { background: var(--tint); color: var(--fg); }
+.tab.active { background: var(--tint-strong); color: var(--fg); font-weight: 600; }
 .tab.dragging { opacity: .5; outline: 1.5px dashed var(--accent); outline-offset: -1px; }
 .tabs.wrap { flex-wrap: wrap; overflow: visible; }
 .tab .badge { margin-left: 6px; font-size: .82em; font-weight: 400; color: var(--muted); font-variant-numeric: tabular-nums; }
@@ -49,12 +56,12 @@ kbd { font-family: var(--mono); background: var(--surface); border: 1px solid va
   content: ''; position: absolute; left: 8px; top: 50%; width: 7px; height: 7px; border-radius: 50%;
   transform: translateY(-50%); background: var(--tab-color);
 }
-.tab[data-color].active { background: color-mix(in srgb, var(--tab-color) 22%, var(--surface)); }
+.tab[data-color].active { background: color-mix(in srgb, var(--tab-color) 30%, transparent); }
 .ctx .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; vertical-align: -1px; }
 .ctx .swatch.none { border: 1px solid var(--muted); }
 .ctx button.checked { font-weight: 600; }
 .tab-input {
-  background: var(--surface); border: 1px solid var(--accent); color: var(--fg); border-radius: 6px;
+  background: var(--tint); border: 1px solid var(--accent); color: var(--fg); border-radius: 6px;
   padding: 2px 6px; font: inherit; font-size: .92em; width: 100px; outline: none; flex-shrink: 0;
 }
 .icon-btn {
@@ -62,11 +69,11 @@ kbd { font-family: var(--mono); background: var(--surface); border: 1px solid va
   display: grid; place-items: center; padding: 0; font-size: 1em; flex-shrink: 0; line-height: 1;
 }
 .icon-btn svg { width: 14px; height: 14px; }
-.icon-btn:hover { background: var(--surface); color: var(--fg); }
+.icon-btn:hover { background: var(--tint); color: var(--fg); }
 .icon-btn.active { color: var(--accent); }
-.seg { display: flex; background: var(--surface); border-radius: 6px; padding: 2px; }
+.seg { display: flex; background: var(--tint); border-radius: 6px; padding: 2px; }
 .seg button { border: none; background: transparent; color: var(--muted); padding: 1px 8px; border-radius: 5px; font-size: .85em; }
-.seg button.active { background: var(--bg); color: var(--fg); }
+.seg button.active { background: var(--tint-strong); color: var(--fg); }
 .count { color: var(--muted); font-size: .8em; margin-left: 6px; white-space: nowrap; }
 
 /* ── main ─────────────────────────────────────────────── */
@@ -92,9 +99,9 @@ kbd { font-family: var(--mono); background: var(--surface); border: 1px solid va
 .task .check, .task .del { cursor: pointer; }
 body.is-dragging, body.is-dragging * { cursor: grabbing !important; }
 .rule { border-top: 1px solid var(--border); margin: 10px 6px; height: 0; padding-bottom: 6px; }
-.task:hover { background: var(--surface); }
+.task:hover { background: var(--tint); }
 .task.dragging { opacity: .35; outline: 1.5px dashed var(--accent); outline-offset: -1px; }
-.task.drop-inside { background: var(--surface); box-shadow: inset 0 0 0 2px var(--accent); }
+.task.drop-inside { background: var(--tint-strong); box-shadow: inset 0 0 0 2px var(--accent); }
 .task.drop-inside::after {
   content: 'drop inside'; position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
   font-size: .7em; color: var(--accent); letter-spacing: .04em; text-transform: uppercase; pointer-events: none;
@@ -117,7 +124,7 @@ body.is-dragging, body.is-dragging * { cursor: grabbing !important; }
 .task .del:hover { opacity: 1; color: var(--danger); }
 
 .ghost {
-  position: fixed; pointer-events: none; z-index: 100; background: var(--surface); border-radius: 7px;
+  position: fixed; pointer-events: none; z-index: 100; background: var(--panel-raised); border-radius: 7px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, .35); transform: scale(1.02); opacity: .7; margin: 0;
 }
 .ghost .task { opacity: 1; }
@@ -144,22 +151,22 @@ body.is-dragging, body.is-dragging * { cursor: grabbing !important; }
 
 /* ── popover / modal / toast ─────────────────────────── */
 .popover {
-  position: absolute; top: 34px; right: 8px; width: 250px; background: var(--bg); border: 1px solid var(--border);
+  position: absolute; top: 34px; right: 8px; width: 250px; background: var(--panel); border: 1px solid var(--border);
   border-radius: 10px; padding: 10px 12px; box-shadow: 0 12px 32px rgba(0, 0, 0, .35); z-index: 50; font-size: .9em;
 }
 .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 6px 0; }
 .row label { color: var(--muted); white-space: nowrap; }
 .row select, .row input[type=number] {
-  background: var(--surface); color: var(--fg); border: 1px solid var(--border); border-radius: 5px; padding: 2px 4px;
+  background: var(--tint); color: var(--fg); border: 1px solid var(--border); border-radius: 5px; padding: 2px 4px;
   font: inherit; max-width: 130px; outline: none;
 }
 .row input[type=number] { width: 60px; }
-.row input[type=range] { width: 120px; accent-color: var(--accent); }
+.row input[type=range] { width: 120px; accent-color: var(--accent); background: transparent; }
 .row input[type=range]:disabled { opacity: .4; }
 input[type=checkbox] { accent-color: var(--accent); width: 15px; height: 15px; margin: 0; }
 .actions { display: flex; gap: 6px; justify-content: flex-end; margin-top: 10px; }
 .actions button {
-  background: var(--surface); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px; font-size: .92em;
+  background: var(--tint); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px; font-size: .92em;
 }
 .actions button:hover { border-color: var(--muted); }
 .actions button.danger { color: var(--danger); }
@@ -167,17 +174,17 @@ input[type=checkbox] { accent-color: var(--accent); width: 15px; height: 15px; m
 
 .ctx {
   position: absolute; z-index: 55; min-width: 130px; display: flex; flex-direction: column; padding: 4px;
-  background: var(--bg); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 10px 28px rgba(0, 0, 0, .35);
+  background: var(--panel); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 10px 28px rgba(0, 0, 0, .35);
 }
 .ctx button { text-align: left; border: none; background: transparent; color: var(--fg); padding: 5px 10px; border-radius: 5px; font-size: .92em; }
-.ctx button:hover { background: var(--surface); }
+.ctx button:hover { background: var(--tint); }
 .ctx button.danger { color: var(--danger); }
 .ctx button:disabled { opacity: .4; cursor: default; }
-.ctx .sep { height: 1px; background: var(--border); margin: 4px 6px; }
-.task.selected { background: var(--surface); box-shadow: inset 2px 0 0 var(--accent); }
+.ctx .sep { height: 1px; background: rgba(var(--fg-rgb), .18); margin: 4px 6px; }
+.task.selected { background: var(--tint-strong); box-shadow: inset 2px 0 0 var(--accent); }
 .modal { position: absolute; inset: 0; background: rgba(0, 0, 0, .35); display: grid; place-items: center; z-index: 60; }
 .dialog {
-  background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; min-width: 220px; max-width: 85%;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; min-width: 220px; max-width: 85%;
   box-shadow: 0 12px 32px rgba(0, 0, 0, .35);
 }
 .dialog p { margin: 0 0 12px; overflow-wrap: anywhere; }

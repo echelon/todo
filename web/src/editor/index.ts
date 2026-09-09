@@ -63,7 +63,7 @@ const theme = EditorView.theme({
   '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionBackground': {
     backgroundColor: 'color-mix(in srgb, var(--accent) 30%, transparent)',
   },
-  '.cm-activeLine': { backgroundColor: 'color-mix(in srgb, var(--surface) 60%, transparent)' },
+  '.cm-activeLine': { backgroundColor: 'var(--tint)' },
   '.cm-selectionMatch': { backgroundColor: 'color-mix(in srgb, var(--accent) 18%, transparent)' },
   '.cm-searchMatch': { backgroundColor: 'color-mix(in srgb, var(--accent) 35%, transparent)' },
   '.cm-fat-cursor': { background: 'var(--accent) !important', color: 'var(--accent-fg) !important' },

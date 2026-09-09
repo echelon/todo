@@ -11,7 +11,7 @@ pub mod store;
 
 pub use config::{
     Appearance, Config, EditorConfig, ShortcutConfig, TabBadge, TabOverflow, TabsConfig,
-    TrayConfig, WindowConfig,
+    TrayConfig, WindowConfig, WindowState,
 };
 pub use markdown::{Block, Document};
 pub use scheme::{ColorScheme, Palette};

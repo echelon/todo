@@ -75,7 +75,7 @@ comments preserved.
 | `window.inactive_opacity_enabled` | `false` | fade the window while it is neither focused nor hovered |
 | `window.inactive_opacity` | `0.5` | the faded opacity (settings: "Fade when not focused") |
 | `window.always_on_top` | `false` | |
-| `window.width` / `height` / `corner_radius` | `380` / `540` / `12` | |
+| `window.width` / `height` / `corner_radius` | `380` / `540` / `12` | size for the very first launch; afterwards the app remembers its last position and size in `~/.todo_state.toml` (delete it to reset; a spot that is no longer on any screen falls back to centered) |
 | `window.start_hidden` | `false` | launch straight into the tray |
 | `tray.close_to_tray` | `true` | closing hides instead of quitting |
 | `tray.hide_dock_icon` | `true` | macOS menu-bar-only app (restart to apply) |
