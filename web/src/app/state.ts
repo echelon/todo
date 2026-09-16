@@ -53,6 +53,7 @@ export const el = {
   mdHost: $('#md-host'),
   empty: $('#empty'),
   count: $('#count'),
+  clearCompleted: $<HTMLButtonElement>('#clear-completed-btn'),
   viewSeg: $('#view-seg'),
   badgeBtn: $('#badge-btn'),
   pin: $('#pin-btn'),

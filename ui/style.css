@@ -69,7 +69,9 @@ kbd { font-family: var(--mono); background: var(--tint); border: 1px solid var(-
   display: grid; place-items: center; padding: 0; font-size: 1em; flex-shrink: 0; line-height: 1;
 }
 .icon-btn svg { width: 14px; height: 14px; }
-.icon-btn:hover { background: var(--tint); color: var(--fg); }
+.icon-btn:hover:not(:disabled) { background: var(--tint); color: var(--fg); }
+.icon-btn:disabled { opacity: .35; cursor: default; }
+.clear-completed-btn:hover:not(:disabled) { color: var(--danger); }
 .icon-btn.active { color: var(--accent); }
 .seg { display: flex; background: var(--tint); border-radius: 6px; padding: 2px; }
 .seg button { border: none; background: transparent; color: var(--muted); padding: 1px 8px; border-radius: 5px; font-size: .85em; }

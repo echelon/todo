@@ -37,6 +37,7 @@ declare global {
 
 let editor: MdEditor | null = null;
 let editorLoading: Promise<MdEditor> | null = null;
+let mdSave: Promise<boolean> = Promise.resolve(true);
 
 export const getEditor = (): MdEditor | null => editor;
 
@@ -134,16 +135,21 @@ el.md.addEventListener('keydown', (e) => {
   }
 });
 
-export async function flushMd(): Promise<void> {
+/** Flush pending edits, also waiting for any save already started by blur or the debounce timer. */
+export function flushMd(): Promise<boolean> {
   clearTimeout(S.mdTimer);
-  if (!S.mdDirty || !editor) return;
+  if (!S.mdDirty || !editor) return mdSave;
   S.mdDirty = false;
-  const f = file(); if (!f) return;
+  const f = file(); if (!f) return mdSave;
   const raw = editor.getValue();
   f.raw = raw;
-  try {
-    f.blocks = await invoke('save_raw', { name: f.name, raw });
-    updateCount();
-  } catch (e) { toast(e); }
-  void flushPending();
+  mdSave = mdSave.then(async () => {
+    try {
+      f.blocks = await invoke('save_raw', { name: f.name, raw });
+      updateCount();
+      void flushPending();
+      return true;
+    } catch (e) { toast(e); return false; }
+  });
+  return mdSave;
 }

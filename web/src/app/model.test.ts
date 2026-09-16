@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {
   appendIndex, badgeText, blockFromTyped, blocksToMarkdown, clampDropLevel, collapseBlanks, countText, headingFromText,
   effectiveOpacity, hexToRgb, insertBlocks, isRuleText, levelOf, nextBadgeMode, nextTaskIndex, parseTaskLines, pasteTarget,
-  deferredFlags, isDeferred, isEmptyTask, prevTaskLevel, pruneEmptyTasks, removeSubtree, setLevel, shiftLevels, splitTags, subtreeBlocks, subtreeEnd, taskCounts,
+  deferredFlags, isDeferred, isEmptyTask, prevTaskLevel, pruneEmptyTasks, removeCompletedTasks, removeSubtree, setLevel, shiftLevels, splitTags, subtreeBlocks, subtreeEnd, taskCounts,
 } from './model.ts';
 import type { Block } from './types.ts';
 
@@ -117,6 +117,24 @@ test('pasteTarget and insertBlocks', () => {
   assert.deepEqual(clone, [t('N', 1), t('N1', 2)]);
   assert.equal((b[5] as { text: string }).text, 'N');
   assert.equal((b[7] as { text: string }).text, 'A2');
+});
+
+test('removeCompletedTasks keeps unfinished descendants and non-task content', () => {
+  const note: Block = { kind: 'text', text: 'Keep this note.' };
+  const b = [h('Work'), blank, t('Done parent', 0, true), t('Done child', 1, true),
+    t('Keep grandchild', 2), t('Keep its child', 3), t('Keep sibling', 1),
+    rule, note, t('Keep parent'), t('Done nested child', 1, true), t('Keep nested sibling', 1)];
+  assert.deepEqual(removeCompletedTasks(b), [2, 3, 10]);
+  assert.deepEqual(b, [h('Work'), blank, t('Keep grandchild'), t('Keep its child', 1),
+    t('Keep sibling'), rule, note, t('Keep parent'), t('Keep nested sibling', 1)]);
+  assert.deepEqual(removeCompletedTasks(b), []);
+});
+
+test('removeCompletedTasks handles empty lists and lists with only completed tasks', () => {
+  assert.deepEqual(removeCompletedTasks([]), []);
+  const b = [h('Work'), blank, t('Done', 0, true), t('Also done', 0, true), blank];
+  assert.deepEqual(removeCompletedTasks(b), [2, 3]);
+  assert.deepEqual(b, [h('Work'), blank, blank]);
 });
 
 test('badges and counts', () => {

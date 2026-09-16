@@ -1,12 +1,13 @@
 /** The rendered list: rows, selection, add box, delete, keyboard navigation. */
 import { copySelected, copySelectedTo, cutSelected, moveSelectedTo, pasteBlocks } from './clipboard.ts';
 import { commitEdit, startEdit } from './edit.ts';
-import { appendIndex, blockFromTyped, countText, deferredFlags, LEVEL_PX, levelOf, nextTaskIndex, removeSubtree, splitTags, subtreeEnd } from './model.ts';
-import { save } from './snapshot.ts';
+import { flushMd } from './editor.ts';
+import { appendIndex, blockFromTyped, blocksToMarkdown, countText, deepClone, deferredFlags, LEVEL_PX, levelOf, nextTaskIndex, removeCompletedTasks, removeSubtree, splitTags, subtreeEnd, taskCounts } from './model.ts';
+import { refreshView, save } from './snapshot.ts';
 import { blockIndex, div, el, file, rowAt, S, targetEl } from './state.ts';
 import { updateActiveBadge } from './tabs.ts';
 import type { Block } from './types.ts';
-import { confirmDialog, showMenu } from './ui.ts';
+import { confirmDialog, showMenu, toast } from './ui.ts';
 
 const CHECK_SVG = '<svg viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 6.5l2.6 2.6L10 3.5"/></svg>';
 
@@ -73,7 +74,7 @@ function addRow(): HTMLElement {
 export function renderList(): void {
   const f = file();
   el.empty.hidden = !!f;
-  if (!f) { el.list.textContent = ''; el.count.textContent = ''; return; }
+  if (!f) { el.list.textContent = ''; updateCount(); return; }
   const frag = document.createDocumentFragment();
   const deferred = deferredFlags(f.blocks);
   f.blocks.forEach((b, i) => frag.append(blockEl(b, i, deferred[i])));
@@ -92,6 +93,7 @@ export function updateCount(): void {
   updateActiveBadge();
   const f = file();
   el.count.textContent = f ? countText(f.blocks) : '';
+  el.clearCompleted.disabled = !f || taskCounts(f.blocks).done === 0;
 }
 
 export function addTask(text: string): void {
@@ -128,6 +130,32 @@ export async function deleteTask(i: number): Promise<void> {
     void save(f);
   }
 }
+
+async function deleteCompleted(): Promise<void> {
+  if (!el.modal.hidden) return;
+  const name = S.active;
+  if (S.editing) commitEdit();
+  if (!(await flushMd())) return;
+  const f = file();
+  if (!f || f.name !== name || !el.modal.hidden) return;
+  const { done } = taskCounts(f.blocks);
+  if (!done) return;
+  const before = blocksToMarkdown(f.blocks);
+  if (!(await confirmDialog(`Delete ${done} completed task${done === 1 ? '' : 's'} from "${name}"?`))) return;
+  const current = file();
+  if (!current || current.name !== name || S.mdDirty || S.editing || blocksToMarkdown(current.blocks) !== before) {
+    toast('The list changed. Try deleting completed tasks again.');
+    return;
+  }
+  const updated = { ...current, blocks: deepClone(current.blocks) };
+  removeCompletedTasks(updated.blocks);
+  if (!(await save(updated))) return;
+  current.blocks = updated.blocks;
+  current.raw = updated.raw;
+  S.selected = null;
+  refreshView();
+}
+el.clearCompleted.addEventListener('click', () => void deleteCompleted());
 
 export function moveSelection(dir: 1 | -1): void {
   const f = file(); if (!f) return;

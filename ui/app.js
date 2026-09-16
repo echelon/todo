@@ -123,9 +123,15 @@
   }
   var isEmptyTask = (b) => b.kind === "task" && b.text.trim() === "";
   function pruneEmptyTasks(blocks) {
+    return pruneTasks(blocks, isEmptyTask);
+  }
+  function removeCompletedTasks(blocks) {
+    return pruneTasks(blocks, (b) => b.kind === "task" && b.done);
+  }
+  function pruneTasks(blocks, shouldRemove) {
     const removed = [];
     for (let i = 0, orig = 0; i < blocks.length; orig++) {
-      if (!isEmptyTask(blocks[i])) {
+      if (!shouldRemove(blocks[i])) {
         i++;
         continue;
       }
@@ -246,6 +252,7 @@
     mdHost: $("#md-host"),
     empty: $("#empty"),
     count: $("#count"),
+    clearCompleted: $("#clear-completed-btn"),
     viewSeg: $("#view-seg"),
     badgeBtn: $("#badge-btn"),
     pin: $("#pin-btn"),
@@ -374,6 +381,7 @@
   // src/app/editor.ts
   var editor = null;
   var editorLoading = null;
+  var mdSave = Promise.resolve(true);
   var getEditor = () => editor;
   function loadScript(src) {
     return new Promise((resolve, reject) => {
@@ -468,21 +476,26 @@
       onMdInput();
     }
   });
-  async function flushMd() {
+  function flushMd() {
     clearTimeout(S.mdTimer);
-    if (!S.mdDirty || !editor) return;
+    if (!S.mdDirty || !editor) return mdSave;
     S.mdDirty = false;
     const f = file();
-    if (!f) return;
+    if (!f) return mdSave;
     const raw = editor.getValue();
     f.raw = raw;
-    try {
-      f.blocks = await invoke("save_raw", { name: f.name, raw });
-      updateCount();
-    } catch (e) {
-      toast(e);
-    }
-    void flushPending();
+    mdSave = mdSave.then(async () => {
+      try {
+        f.blocks = await invoke("save_raw", { name: f.name, raw });
+        updateCount();
+        void flushPending();
+        return true;
+      } catch (e) {
+        toast(e);
+        return false;
+      }
+    });
+    return mdSave;
   }
 
   // src/app/tabs.ts
@@ -733,8 +746,10 @@
   async function save(f) {
     try {
       f.raw = await invoke("save_blocks", { name: f.name, blocks: f.blocks });
+      return true;
     } catch (e) {
       toast(e);
+      return false;
     }
   }
   function applySnapshot(snap) {
@@ -968,7 +983,7 @@
     el.empty.hidden = !!f;
     if (!f) {
       el.list.textContent = "";
-      el.count.textContent = "";
+      updateCount();
       return;
     }
     const frag = document.createDocumentFragment();
@@ -989,6 +1004,7 @@
     updateActiveBadge();
     const f = file();
     el.count.textContent = f ? countText(f.blocks) : "";
+    el.clearCompleted.disabled = !f || taskCounts(f.blocks).done === 0;
   }
   function addTask(text) {
     const f = file();
@@ -1022,6 +1038,31 @@
       void save(f);
     }
   }
+  async function deleteCompleted() {
+    if (!el.modal.hidden) return;
+    const name = S.active;
+    if (S.editing) commitEdit();
+    if (!await flushMd()) return;
+    const f = file();
+    if (!f || f.name !== name || !el.modal.hidden) return;
+    const { done } = taskCounts(f.blocks);
+    if (!done) return;
+    const before = blocksToMarkdown(f.blocks);
+    if (!await confirmDialog(`Delete ${done} completed task${done === 1 ? "" : "s"} from "${name}"?`)) return;
+    const current = file();
+    if (!current || current.name !== name || S.mdDirty || S.editing || blocksToMarkdown(current.blocks) !== before) {
+      toast("The list changed. Try deleting completed tasks again.");
+      return;
+    }
+    const updated = { ...current, blocks: deepClone(current.blocks) };
+    removeCompletedTasks(updated.blocks);
+    if (!await save(updated)) return;
+    current.blocks = updated.blocks;
+    current.raw = updated.raw;
+    S.selected = null;
+    refreshView();
+  }
+  el.clearCompleted.addEventListener("click", () => void deleteCompleted());
   function moveSelection(dir) {
     const f = file();
     if (!f) return;

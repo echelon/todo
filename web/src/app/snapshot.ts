@@ -8,10 +8,11 @@ import { invoke } from './tauri.ts';
 import type { Snapshot, TodoFile } from './types.ts';
 import { toast } from './ui.ts';
 
-export async function save(f: TodoFile): Promise<void> {
+export async function save(f: TodoFile): Promise<boolean> {
   try {
     f.raw = await invoke('save_blocks', { name: f.name, blocks: f.blocks });
-  } catch (e) { toast(e); }
+    return true;
+  } catch (e) { toast(e); return false; }
 }
 
 export function applySnapshot(snap: Snapshot): void {

@@ -31,6 +31,8 @@ files; edit them in the app or in any editor and both stay in sync.
 
 - Rendered list view with pointer-based drag & drop reordering, click-to-edit,
   Enter to insert the next item, hover ✕ to delete (with confirmation).
+- Bottom-bar trash button deletes completed tasks from the current tab (with
+  confirmation), keeping unfinished subtasks and moving them up a level.
 - Nested todos: indent with two spaces in markdown, or `Tab` / `Shift+Tab`
   while editing an item. Dragging a parent moves its whole subtree. To nest
   while dragging, either drop slightly to the right below another item, or

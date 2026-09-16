@@ -183,9 +183,18 @@ export const isEmptyTask = (b: Block): boolean => b.kind === 'task' && b.text.tr
  * caller can re-base an index it is holding on to.
  */
 export function pruneEmptyTasks(blocks: Block[]): number[] {
+  return pruneTasks(blocks, isEmptyTask);
+}
+
+/** Remove completed tasks, lifting surviving children one level per removed parent. */
+export function removeCompletedTasks(blocks: Block[]): number[] {
+  return pruneTasks(blocks, (b) => b.kind === 'task' && b.done);
+}
+
+function pruneTasks(blocks: Block[], shouldRemove: (b: Block) => boolean): number[] {
   const removed: number[] = [];
   for (let i = 0, orig = 0; i < blocks.length; orig++) {
-    if (!isEmptyTask(blocks[i])) { i++; continue; }
+    if (!shouldRemove(blocks[i])) { i++; continue; }
     const end = subtreeEnd(blocks, i);
     shiftLevels(blocks.slice(i + 1, end), -1);
     blocks.splice(i, 1);

@@ -165,6 +165,76 @@ export const scenarios: Scenario[] = [
     check('subtree deleted', rows().length === 4 && !F.Todo.includes('Nested'));
   } },
 
+  { name: 'delete completed tasks', async run({ mock, F, check }) {
+    const button = q<HTMLButtonElement>('#clear-completed-btn')!;
+    const other = F.Work;
+    const original = '# Todo\n\n- [x] Done parent\n  - [x] Done child\n    - [ ] Keep grandchild\n  - [ ] Keep sibling\n\n---\nSome notes\n- [ ] Keep root\n';
+    F.Todo = original;
+    mock.emit('todo:snapshot', mock.snapshot()); await sleep(10);
+    q('#badge-btn')!.click(); await sleep(10);
+    rows()[0].click();
+    check('button is enabled in the footer', !button.disabled && !!button.closest('footer'));
+    button.click(); await sleep(10);
+    check('confirmation names the tab and completed count', !q('#modal')!.hidden && q('#modal-msg')!.textContent === 'Delete 2 completed tasks from "Todo"?');
+    q('#modal-cancel')!.click(); await sleep(10);
+    check('cancel preserves the file', F.Todo === original);
+    const core = window.__TAURI__!.core;
+    const invoke = core.invoke;
+    core.invoke = async (cmd, args) => {
+      if (cmd === 'save_blocks') throw new Error('Could not save the list');
+      return invoke(cmd, args);
+    };
+    try {
+      button.click(); await sleep(10);
+      q('#modal-ok')!.click(); await sleep(20);
+      check('failed save preserves tasks and reports the error', F.Todo === original && qa('#list .task.done').length === 2 && !button.disabled && q('#toast')!.textContent === 'Error: Could not save the list');
+    } finally { core.invoke = invoke; }
+    button.click(); await sleep(10);
+    q('#modal-ok')!.click(); await sleep(20);
+    check('only completed tasks removed and unfinished descendants lifted', F.Todo === '# Todo\n\n- [ ] Keep grandchild\n- [ ] Keep sibling\n\n---\nSome notes\n- [ ] Keep root\n');
+    check('other tab unchanged', F.Work === other);
+    check('selection, count, badge and button updated', state().selected === null && q('#count')!.textContent === '3 left' && tab('Todo')!.querySelector('.badge')!.textContent === '0/3' && button.disabled);
+    qa('#list .task .check')[0].click(); await sleep(10);
+    check('checking a task enables the button', !button.disabled);
+    tab('Home')!.click(); await sleep(10);
+    check('empty tab disables the button', button.disabled);
+    tab('Work')!.click(); await sleep(10);
+    check('switching to a tab with completed tasks enables the button', !button.disabled);
+    button.click(); await sleep(10);
+    key('1', { metaKey: true }); await sleep(10);
+    q('#modal-ok')!.click(); await sleep(10);
+    check('changing tabs during confirmation does not delete tasks', F.Work === other && state().active === 'Home');
+    tab('Work')!.click(); await sleep(10);
+    mock.files = {}; mock.emit('todo:snapshot', mock.snapshot()); await sleep(10);
+    check('no lists disables the button', button.disabled);
+  } },
+
+  { name: 'delete completed tasks while markdown save is pending', async run({ mock, F, check }) {
+    const other = F.Work;
+    key('e', { metaKey: true });
+    await waitFor(() => !!window.__todo?.editor && !q('#md-host')!.hidden);
+    const ed = window.__todo!.editor!;
+    const view = ed.view as { state: { doc: { length: number } }; dispatch(tr: unknown): void };
+    const raw = '# Todo\n\n- [x] Just completed\n  - [ ] Keep child\n- [x] Also completed\n';
+    const core = window.__TAURI__!.core;
+    const invoke = core.invoke;
+    core.invoke = async (cmd, args) => {
+      if (cmd === 'save_raw') await sleep(100);
+      return invoke(cmd, args);
+    };
+    try {
+      view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: raw } });
+      ed.focus();
+      q('#clear-completed-btn')!.focus(); // blur begins a save before click
+      q('#clear-completed-btn')!.click();
+      await waitFor(() => !q('#modal')!.hidden);
+      check('confirmation waits for the latest markdown', F.Todo === raw && q('#modal-msg')!.textContent === 'Delete 2 completed tasks from "Todo"?');
+      q('#modal-ok')!.click(); await sleep(20);
+      check('markdown and saved file match after clearing', F.Todo === '# Todo\n\n- [ ] Keep child\n' && ed.getValue() === F.Todo && state().view === 'markdown');
+      check('other tab unchanged and button disabled', F.Work === other && q<HTMLButtonElement>('#clear-completed-btn')!.disabled);
+    } finally { core.invoke = invoke; }
+  } },
+
   { name: 'markdown editor with vim', async run({ F, check }) {
     key('e', { metaKey: true });
     check('editor loaded', await waitFor(() => !!window.__todo?.editor && !q('#md-host')!.hidden));
